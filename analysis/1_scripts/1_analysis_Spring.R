@@ -607,11 +607,12 @@ sink()
 # ------------------
 
 parameters.to.save = c("trend",
-                       "sigma_process",
+                       "sigma_proc",
                        "sigma_stationyear",
                        "sigma_stationday",
                        "migration_phenology_sd",
                        "migration_phenology_mean",
+                       "site_effect",
                        
                        "log_rho_mu",
                        "rho",
@@ -627,9 +628,9 @@ parameters.to.save = c("trend",
 
 
 inits <- NULL
-nsamp <- 1000
-nb <- 2000
-nt <- 5
+nsamp <- 100
+nb <- 100
+nt <- 1
 ni <- nb + nsamp*nt
 
 # Need to rerun with time-varying model
@@ -643,8 +644,8 @@ out <- jags(data = jags_data,
             n.burnin = nb,
             parallel = FALSE)
 
-# out$mcmc.info$elapsed.mins
-# save.image(paste0(output_directory,"analysis_",focal_season,"_0.RData"))
+out$mcmc.info$elapsed.mins
+save.image(paste0(output_directory,"analysis_",focal_season,"_0.RData"))
 
 
 # ------------------
@@ -698,7 +699,7 @@ n.eff <- unlist(out$n.eff)
 n.eff[n.eff > 1 & n.eff <= 1000] # Parameters with fewer than 1000 samples
 
 #-------------------------------------------------------------------
-# Are expected counts appropriate?
+# Are expected counts reasonable? Plot expected vs observed counts
 #-------------------------------------------------------------------
 
 # Use median
@@ -717,9 +718,48 @@ ggplot(data = expected_vs_observed, aes(x = sum_obs, y = sum_expected, label = y
   xlab("Total Observed Count")+
   ylab("Total Expected Count (Model)")
   
+
 # ***************************************************************
 # ***************************************************************
-# PART 3: INTERPRET RESULTS
+# PART 3: SUMMARIZE DATA AVAILABILITY ACROSS THE STUDY REGION
+# ***************************************************************
+# ***************************************************************
+
+# Summary of migration count availability at each station
+station_summary <- count_df %>%
+  rename(Year = year_abs, Station = station) %>%
+  group_by(Station,Year) %>%
+  summarize(Total_Count = sum(count),
+            Min_Day = min(day_number),
+            Max_Day = max(day_number),
+            n_days = length(unique(day_number))) %>%
+  group_by(Station) %>%
+  summarize(n_Years = length(unique(Year)),
+            First_Year = min(Year),
+            Last_Year = max(Year),
+            min_Count = min(Total_Count),
+            max_Count = max(Total_Count),
+            mean_Count = mean(Total_Count)) %>%
+  left_join(station_coordinates, by = c("Station" = "station")) %>%
+  dplyr::select(Station,name,country,lat,lon,First_Year,Last_Year,n_Years,mean_Count,min_Count,max_Count) %>%
+  rename("Station code" = Station,
+         "Station name" = name,
+         "Country" = country,
+         "Lat" = lat,
+         "Lon" = lon,
+         "First year" = First_Year,
+         "Last year" = Last_Year,
+         "# years" = n_Years,
+         "Mean annual count" = mean_Count,
+         "Min annual count" = min_Count,
+         "Max annual count" = max_Count)
+
+write.csv(station_summary, file = paste0(output_directory,"/tables/",focal_season,"_station_summary.csv"),row.names = FALSE)
+
+
+# ***************************************************************
+# ***************************************************************
+# PART 4: INTERPRET RESULTS
 # ***************************************************************
 # ***************************************************************
 
