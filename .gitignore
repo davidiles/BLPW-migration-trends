@@ -1,4 +1,5 @@
 *.tif
+*.Rhistory
 analysis/0_data/
 analysis/2_output/
 analysis/2_BBS_analysis/

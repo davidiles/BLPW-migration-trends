@@ -1,8 +1,6 @@
 # *******************************************************************
 # *******************************************************************
-
-# Analysis of spring migration data
-
+# Analysis of pre-breeding (i.e., spring) migration data
 # *******************************************************************
 # *******************************************************************
 
@@ -22,6 +20,35 @@ library(ggsflabel) # custom library download from devtools::install_github("yuta
 #------------------------------------------------
 
 rm(list=ls())
+
+#------------------------------------------------
+# Graphical themes
+#------------------------------------------------
+
+# Theme for plotting
+CustomTheme <- theme_set(theme_bw())
+CustomTheme <- theme_update(legend.key = element_rect(colour = NA), 
+                            legend.key.height = unit(1.2, "line"),
+                            panel.grid.major = element_line(colour = 'transparent'),
+                            panel.grid.minor = element_line(colour = 'transparent'),
+                            
+                            panel.border = element_rect(linetype = "solid",
+                                                        colour = "black",fill = NA),
+                            axis.line = element_line(colour = "black"),
+                            
+                            strip.text = element_text(size = 12, colour = "black"),
+                            
+                            strip.background = element_rect(colour = "black",
+                                                            fill = "gray95",
+                                                            linetype = "solid"),
+                            
+                            axis.title.y = element_text(margin = margin(0,10,0,0)),
+                            axis.title.x = element_text(margin = margin(10,0,0,0)),
+                            
+                            panel.background = element_rect(fill = "white"))
+
+# Colors for plotting
+strata_colours <- c("#016b9b","#D18A80")
 
 # ------------------------------------------------
 # Set working directory
@@ -253,7 +280,7 @@ table_directory <- paste0(output_directory,"/tables/")
   #----------
   
   # Load coordinates of cmmn stations
-  station_coordinates <- read.csv("analysis/0_data/locations/station_locations.csv")
+  station_coordinates <- read_xlsx("analysis/0_data/locations/station_locations.xlsx")
   
   station_data_summarized <- dat_combined %>%
     group_by(YearCollected,season,station) %>%
@@ -394,31 +421,6 @@ table_directory <- paste0(output_directory,"/tables/")
     
   }
   
-  # # For each station, apply breeding origin assignments within buffer
-  # for (i in 1:nrow(station_data_summarized_sf)){
-  #   
-  #   # Calculate 
-  #   station_name = station_data_summarized_sf$station[i]
-  #   dists <- st_distance(station_data_summarized_sf[i,],assignments_sf) %>% as.numeric()
-  #   within_buffer <- which(dists <= 250000)
-  #   
-  #   # If no assignments are available, move to next station
-  #   if (length(within_buffer) < 1) next
-  #   
-  #   breeding_origins_at_station <- assignments[within_buffer,] %>%
-  #     group_by(year) %>%
-  #     summarize(assigned_to_West = sum(assigned_to_West),
-  #               assigned_to_East = sum(assigned_to_East))
-  #   
-  #   # Fill in data
-  #   for (j in 1:nrow(breeding_origins_at_station)){
-  #     N_origin["East",station_name,as.character(breeding_origins_at_station$year[j])] = breeding_origins_at_station$assigned_to_East[j]
-  #     N_origin["West",station_name,as.character(breeding_origins_at_station$year[j])] = breeding_origins_at_station$assigned_to_West[j]
-  #     
-  #   }
-  #   
-  # }
-  
   # Sample sizes
   N_station_sampled <- apply(N_origin,c(2,3), sum)
   N_station_sampled[is.na(N_station_sampled)] <- 999  # Placeholder for sample size in years with no stable isotope information
@@ -436,22 +438,22 @@ year_vec <- min(count_df$year_abs):max(count_df$year_abs)
 # Fix migration parameters for several stations
 #------------------------------------------------
 
-# Fix certain migration rates to zero; stations with 0 for "rho.fix" will not have migration parameters estimated
-rho.fix <- matrix(1,nrow = jags_data$nstrata, 
+# Fix certain migration rates to zero; stations with 0 for "rho_fix" will not have migration parameters estimated
+rho_fix <- matrix(1,nrow = jags_data$nstrata, 
                   ncol = jags_data$nstation, 
                   dimnames = list(c("East","West"),station_names)) 
 
 # Western stations cannot receive eastern birds
-rho.fix["East", c("ACBO","LMBO")] <- 0 
+rho_fix["East", c("ACBO","LMBO")] <- 0 
 
 # Eastern coastal sites cannot receive western birds
-rho.fix["West", c("AIMS","MCCS")] <- 0 
+rho_fix["West", c("AIMS","MCCS")] <- 0 
 
 #------------------------------------------------
 # Add several extra quantities that are needed for JAGS script
 #------------------------------------------------
 
-jags_data$rho.fix <- rho.fix
+jags_data$rho_fix <- rho_fix
 jags_data$pi <- pi
 jags_data$logN0 <- rep(0,jags_data$nstrata)
 
@@ -464,9 +466,8 @@ jags_data$station_site <- station_site$station_number
 # FIT THE MODEL IN JAGS
 # ------------------
 
-
 # The jags script to fit the model
-sink("./analysis/1_scripts/migration_model_0.jags")
+sink("./analysis/1_scripts/migration_model.jags")
 cat("
     model {
   
@@ -483,14 +484,14 @@ cat("
     
   for (j in 1:nstrata){
     
-    trend[j] ~ dnorm(0,0.25)
+    logX[j,1] <- 0
+    X[j,1] <- exp(logX[j,1])
     
-    # Work forwards from baseline year
-    for (y in 1:nyear){
+    for (y in 2:nyear){
 
-      logX[j,y] ~ dnorm( trend[j] * (y-1) , tau_proc)
+      logX[j,y] ~ dnorm(logX[j,y-1],tau_proc)
       X[j,y] <- exp(logX[j,y])
-
+    
     }
   
   } # j
@@ -498,26 +499,24 @@ cat("
   #---------------------------------------------
   # Model for breeding origins of migrants arriving at each station
   #---------------------------------------------
-  
-  sigma_stationyear ~ dunif(0,2)
-  tau_stationyear <- pow(sigma_stationyear,-2)
 
   for (s in 1:nstation){
 
     for (j in 1:nstrata){
-      
-      rho_mu[j,s] ~ dunif(0,10)
-      log_rho_mu[j,s] <- log(rho_mu[j,s])
-
-      for (y in 1:nyear){
-
-	      rho[j,s,y] ~ dlnorm(log_rho_mu[j,s] - 1/(2*tau_stationyear),tau_stationyear)
-        M[j,s,y] <- X[j,y] * rho[j,s,y] * rho.fix[j,s]
-
+      rho[j,s] ~ dlnorm(0,0.25)
+    }
+    
+    for (y in 1:nyear){
+      for (j in 1:nstrata){
+        M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s]
       }
     }
+    
   }
   
+  sigma_rho ~ dunif(0,2)
+  tau_rho <- pow(sigma_rho,-2)
+
   for (s in 1:nstation){
     for (y in 1:nyear){
       
@@ -532,6 +531,8 @@ cat("
       # Multinomial likelihood for observed breeding origins in sample of birds
       N_origin[1:nstrata,s,y] ~ dmulti(p[1:nstrata,s,y],N_station_sampled[s,y])
 
+      T_star[s,y] ~ dlnorm(log(T[s,y]) - 1/(2*tau_rho),tau_rho)
+      
     } # y
   } # s 
   
@@ -539,12 +540,15 @@ cat("
   # Within-season model for migration counts
   #---------------------------------------------
 
+  # Daily overdispersion in counts at each site (e.g., due to daily weather)
+  sigma_stationday ~ dunif(0,2)
+  tau_stationday <- pow(sigma_stationday,-2)
+  
   migration_phenology_sd ~ dunif(0,20)
   migration_phenology_tau <- pow(migration_phenology_sd,-2)
   
   for (s in 1:nstation){
     migration_phenology_mean[s] ~ dunif(1,360)
-    
   }
   
   # Site-level fixed effects (for LPBO that contains multiple sub-stations)
@@ -552,28 +556,25 @@ cat("
 
     site_effect[k] ~ dnorm(0,0.25)
     
-    # Daily overdispersion in counts at each site (e.g., due to daily weather)
-    sigma_stationday[k] ~ dunif(0,2)
-    tau_stationday[k] <- pow(sigma_stationday[k],-2)
   }
   
   for (i in 1:nobs){
     
-    mu[i] <- log(f[i]) + log(T[station[i],year[i]]) + log(net_hrs[i]) + site_effect[site[i]]*dummy_site[i]
+    mu[i] <- log(f[i]) + log(T_star[station[i],year[i]]) + log(net_hrs[i]) + site_effect[site[i]]*dummy_site[i]
     expected_count[i] <- exp(mu[i])
 
     # Likelihood for counts
     f[i] <-  exp(logdensity.norm(day[i], migration_phenology_mean[station[i]], migration_phenology_tau))
     
     # Add daily overdispersion
-    log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday[site[i]]), tau_stationday[site[i]]) 
+    log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday), tau_stationday) 
     count[i] ~ dpois(exp(log_lambda[i]))
     
     # *********************************************************
     # Simulate counts for posterior predictive checking
     # *********************************************************
 
-    sim_log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday[site[i]]), tau_stationday[site[i]]) 
+    sim_log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday), tau_stationday) 
     sim_count[i] ~ dpois(exp(sim_log_lambda[i] ))
    
     # chi-square statistics
@@ -593,7 +594,7 @@ cat("
   for (y in 1:nyear){
     for (s in 1:nstation){
       for (j in 1:nstrata){
-        station_composition[j,s,y] <- T[s,y] * p[j,s,y]
+        station_composition[j,s,y] <- T_star[s,y] * p[j,s,y]
       }
     }
   }
@@ -606,21 +607,20 @@ sink()
 # Fit Model
 # ------------------
 
-parameters.to.save = c("trend",
-                       "sigma_proc",
-                       "sigma_stationyear",
+parameters.to.save = c("sigma_proc",
+                       "sigma_rho",
                        "sigma_stationday",
                        "migration_phenology_sd",
                        "migration_phenology_mean",
-                       "site_effect",
                        
-                       "log_rho_mu",
                        "rho",
+                       "eta",
                        "T",
+                       "T_star",
                        "station_composition",
                        "expected_count",
+                       "site_effect",
                        "sim_count",
-                       
                        "X",
                        "X2_sim",
                        "X2_obs"
@@ -628,37 +628,35 @@ parameters.to.save = c("trend",
 
 
 inits <- NULL
-nsamp <- 100
-nb <- 100
-nt <- 1
+nsamp <- 2000
+nb <- 20000
+nt <- 100
 ni <- nb + nsamp*nt
 
-# Need to rerun with time-varying model
-out <- jags(data = jags_data,
-            model.file = "analysis/1_scripts/migration_model_0.jags",
-            parameters.to.save = parameters.to.save,
-            inits = inits,
-            n.chains = 3,
-            n.thin = nt,
-            n.iter = ni,
-            n.burnin = nb,
-            parallel = FALSE)
-
-out$mcmc.info$elapsed.mins
-save.image(paste0(output_directory,"analysis_",focal_season,"_0.RData"))
-
+# # Need to rerun with time-varying model
+# out <- jags(data = jags_data,
+#             model.file = "analysis/1_scripts/migration_model.jags",
+#             parameters.to.save = parameters.to.save,
+#             inits = inits,
+#             n.chains = 3,
+#             n.thin = nt,
+#             n.iter = ni,
+#             n.burnin = nb,
+#             parallel = TRUE)
+# 
+# out$mcmc.info$elapsed.mins # 153 mins
+# save.image(paste0(output_directory,"analysis_",focal_season,".RData"))
 
 # ------------------
 # Save/load workspace
 # ------------------
 
 # Load fitted model
-load(paste0(output_directory,"analysis_",focal_season,"_0.RData"))
-
+load(paste0(output_directory,"analysis_",focal_season,".RData"))
 
 # ***************************************************************
 # ***************************************************************
-# PART 2: MODEL CONVERGENCE AND GOODNESS-OF-FIT
+# PART 2: ASSESS MODEL CONVERGENCE AND EFFECTIVE SAMPLE SIZE
 # ***************************************************************
 # ***************************************************************
 
@@ -666,19 +664,9 @@ load(paste0(output_directory,"analysis_",focal_season,"_0.RData"))
 # Assess model convergence
 #-------------------------------------------------------------------
 
-# MCMCtrace(out,c("trend",
-#                 "sigma_process",
-#                 "sigma_migration",
-#                 "sigma_daily",
-#                 "migration_phenology_sd",
-#                 "migration_phenology_mean",
-#                 "log_rho_mu"), Rhat = TRUE,
-#           pdf = FALSE)
-
-latent_parameters <- c("trend",
-                       "sigma_process",
-                       "sigma_migration",
-                       "sigma_daily",
+latent_parameters <- c("sigma_proc",
+                       "sigma_rho",
+                       "sigma_stationday",
                        "migration_phenology_sd",
                        "migration_phenology_mean",
                        "log_rho_mu")
@@ -695,35 +683,17 @@ mean(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
 sum(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
 
 # Effective sample sizes
-n.eff <- unlist(out$n.eff)
+n.eff <- unlist(out$n.eff[!(names(out$Rhat) %in% c("sim_count","X2_sim","X2_obs"))])
 n.eff[n.eff > 1 & n.eff <= 1000] # Parameters with fewer than 1000 samples
-
-#-------------------------------------------------------------------
-# Are expected counts reasonable? Plot expected vs observed counts
-#-------------------------------------------------------------------
-
-# Use median
-count_df$expected <- out$q50$expected_count
-
-expected_vs_observed <- count_df %>%
-  group_by(station,year_abs) %>%
-  summarize(sum_obs = sum(count),
-            sum_expected = sum(expected))
-
-ggplot(data = expected_vs_observed, aes(x = sum_obs, y = sum_expected, label = year_abs))+
-  geom_point(col = "gray50") +
-  geom_text_repel(size=2, col = "gray70") +
-  geom_abline(intercept = 0, slope = 1)+
-  facet_wrap(station~., scales = "free")+
-  xlab("Total Observed Count")+
-  ylab("Total Expected Count (Model)")
-  
+min(n.eff[n.eff>1])
+mean(n.eff[n.eff>1]<1000)
 
 # ***************************************************************
 # ***************************************************************
 # PART 3: SUMMARIZE DATA AVAILABILITY ACROSS THE STUDY REGION
 # ***************************************************************
 # ***************************************************************
+station_coordinates <- read_xlsx("analysis/0_data/locations/station_locations.xlsx")
 
 # Summary of migration count availability at each station
 station_summary <- count_df %>%
@@ -737,69 +707,153 @@ station_summary <- count_df %>%
   summarize(n_Years = length(unique(Year)),
             First_Year = min(Year),
             Last_Year = max(Year),
+            Year_Range = paste0(min(Year)," - ", max(Year)),
             min_Count = min(Total_Count),
             max_Count = max(Total_Count),
-            mean_Count = mean(Total_Count)) %>%
+            mean_Count = round(mean(Total_Count),1)) %>%
   left_join(station_coordinates, by = c("Station" = "station")) %>%
-  dplyr::select(Station,name,country,lat,lon,First_Year,Last_Year,n_Years,mean_Count,min_Count,max_Count) %>%
+  dplyr::select(Station,name,country,lat,lon,Year_Range,mean_Count,min_Count,max_Count) %>%
   rename("Station code" = Station,
          "Station name" = name,
          "Country" = country,
          "Lat" = lat,
          "Lon" = lon,
-         "First year" = First_Year,
-         "Last year" = Last_Year,
-         "# years" = n_Years,
+         "Year range" = Year_Range,
          "Mean annual count" = mean_Count,
          "Min annual count" = min_Count,
-         "Max annual count" = max_Count)
+         "Max annual count" = max_Count) %>%
+  mutate(Lat = round(Lat,1),
+         Lon = round(Lon,1))
 
 write.csv(station_summary, file = paste0(output_directory,"/tables/",focal_season,"_station_summary.csv"),row.names = FALSE)
 
-
 # ***************************************************************
 # ***************************************************************
-# PART 4: INTERPRET RESULTS
+# PART 4: PLOT RAW DATA
 # ***************************************************************
 # ***************************************************************
+dsn = paste0(system.file("maps", package = "bbsBayes"),"/BBS_USGS_strata.shp")
+BBS_strata_boundaries <- sf::read_sf(dsn = dsn)
 
-#------------------------------------------------
-# Graphical themes
-#------------------------------------------------
-
-# Theme for plotting
-CustomTheme <- theme_set(theme_bw())
-CustomTheme <- theme_update(legend.key = element_rect(colour = NA), 
-                            legend.key.height = unit(1.2, "line"),
-                            panel.grid.major = element_line(colour = 'transparent'),
-                            panel.grid.minor = element_line(colour = 'transparent'),
-                            
-                            panel.border = element_rect(linetype = "solid",
-                                                        colour = "black",fill = NA),
-                            axis.line = element_line(colour = "black"),
-                            
-                            strip.text = element_text(size = 12, colour = "black"),
-                            
-                            strip.background = element_rect(colour = "black",
-                                                            fill = "gray95",
-                                                            linetype = "solid"),
-                            
-                            axis.title.y = element_text(margin = margin(0,10,0,0)),
-                            axis.title.x = element_text(margin = margin(10,0,0,0)),
-                            
-                            panel.background = element_rect(fill = "white"))
-
-# Colors for plotting
-strata_colours <- c("#016b9b","#D18A80")
-
-#-------------------------------------------------------------------
-# Breeding origin assignments at each station
-#-------------------------------------------------------------------
+# -----------------------------------------
+# Map of study sites and which ones have isotopes available
+# -----------------------------------------
 
 station_assignments <- jags_data$N_origin %>%
   reshape2::melt() %>%
   rename(Stratum = Var1, Station = Var2, Year = Var3, n = value)
 station_assignments$Stratum = factor(station_assignments$Stratum, levels = c("West","East"))
+
+
+BCR_poly <- strata$BCR_poly
+xlim <- c(-162, -56)
+ylim <- c(35, 70)
+
+# Add indicator for assignment information available
+station_data_summarized_sf$assignments <- "No"
+station_data_summarized_sf$assignments[station_data_summarized_sf$station %in% na.omit(station_assignments)$Station] <- "Yes"
+
+origins_known <- colSums(rho_fix == 0)>0
+origins_known <- origins_known[which(origins_known)]
+station_data_summarized_sf$assignments[which(station_data_summarized_sf$station %in% names(origins_known))] <- "Yes"
+
+# Convert to AEA 
+strata_sf <- strata_sf %>% st_transform(st_crs(BBS_strata_boundaries))
+
+strata_sf$Strata <- factor(strata_sf$Strata, levels = c("West","East"))
+strata_fig <- ggplot(data = strata_sf) +
+  geom_sf(data = BCR_poly, fill = "gray96", col = "gray85")+
+  geom_sf(data = strata_sf, aes(fill = Strata), alpha = 0.7)+
+  xlab("")+
+  ylab("")+
+  theme(panel.background = element_rect(fill = "transparent", colour = "black"),
+        panel.border = element_rect(fill = "transparent", color = "black"),
+        panel.grid.major = element_line(color = "gray90", linetype = "dashed", size = 0.5))+
+  geom_sf(data = station_data_summarized_sf ,size = 1, alpha = 1, shape = 19,col = "black")+
+  geom_sf_label_repel(data = station_data_summarized_sf,
+                      aes(label = station),
+                      max.overlaps = 50,
+                      force = 1.2,
+                      size = 1.2, 
+                      alpha = 0.8,
+                      min.segment.length = 0)+
+  scale_fill_manual(values = strata_colours, name = "Stratum", guide = FALSE) +
+  ggtitle("Pre-breeding migration")#+
+  #coord_sf(xlim = xlim, ylim = ylim)
+#strata_fig
+
+png(file = paste0(output_directory,"figures/Manuscript_Fig1_Station_Map_",focal_season,".png"), units = "in", width = 5, height = 4, res = 600)
+strata_fig 
+dev.off()
+
+save(strata_fig, file = paste0("analysis/2_output/Figures_Main_Text/",focal_season,"_map.RData"))
+
+#-------------------------------------------------------------------
+# Observed counts each year (overlaid with model-derived expected counts)
+#-------------------------------------------------------------------
+
+expected_vs_observed <- count_df %>%
+  group_by(station,year_abs) %>%
+  summarize(sum_obs = sum(count))
+
+# Calculate uncertainty in expected count for each station-year combination
+for (i in 1:nrow(expected_vs_observed)){
+  j <- which(count_df$year_abs == expected_vs_observed$year_abs[i] & 
+               count_df$station == expected_vs_observed$station[i])
+  
+  expected <- out$sims.list$sim_count[,j] %>% apply(.,1,sum) %>% quantile(c(0.025,0.5,0.975))
+  
+  expected_vs_observed$expected_q025[i] <-  expected[1]
+  expected_vs_observed$expected_q50[i]  <-  expected[2]
+  expected_vs_observed$expected_q975[i] <-  expected[3]
+  
+}
+
+# Correlation between observed and expected counts
+cor_obs_expected <- expected_vs_observed %>%
+  group_by(station) %>%
+  summarize(cor = round(cor(sum_obs,expected_q50),2),
+            max = max(c(sum_obs,expected_q975)))
+
+cor_obs_expected$cor_label <- paste0("cor = ",cor_obs_expected$cor)
+
+plot_obs_vs_expected <- ggplot(data = expected_vs_observed)+
+  geom_errorbar(aes(x = year_abs, ymin = expected_q025,ymax = expected_q975, col = "Expected"), width = 0)+
+  geom_point(aes(x = year_abs, y = expected_q50, col = "Expected", shape = "Expected"))+
+  geom_point(aes(x = year_abs, y = sum_obs, col = "Observed", shape = "Observed"))+
+  geom_text(data = cor_obs_expected, aes(x = 2000, y = max*1.1, label = cor_label), hjust = 0, size = 3)+
+  facet_wrap(station~., scales = "free_y")+
+  scale_color_manual(values=c("gray75","black"), name = "", guide = FALSE)+
+  scale_shape_manual(values=c(19,4), name = "", guide = FALSE)+
+  xlab("Year")+
+  ylab("Total Seasonal Count")+
+  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPre-breeding migration")
+plot_obs_vs_expected
+
+png(file = paste0(output_directory,"figures/Appendix_S1_migration_counts.png"), units = "in", width = 8, height = 8, res = 600)
+plot_obs_vs_expected
+dev.off()
+
+plot_obs_vs_expected2 <- ggplot(data = expected_vs_observed)+
+  geom_abline(slope=1,intercept=0)+
+  geom_errorbar(aes(x = sum_obs, ymin = expected_q025,ymax = expected_q975, col = "Expected"), width = 0)+
+  geom_point(aes(x = sum_obs, y = expected_q50, col = "Expected", shape = "Expected"))+
+  geom_text(data = cor_obs_expected, aes(x = 2000, y = max*1.1, label = cor_label), hjust = 0, size = 3)+
+  facet_wrap(station~., scales = "free")+
+  scale_color_manual(values=c("gray75","black"), name = "", guide = FALSE)+
+  scale_shape_manual(values=c(19,4), name = "", guide = FALSE)+
+  xlab("Observed Total Count")+
+  ylab("Expected Total Count")+
+  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPre-breeding migration")
+plot_obs_vs_expected2
+
+png(file = paste0(output_directory,"figures/Appendix_S1_obs_vs_expected.png"), units = "in", width = 8, height = 8, res = 600)
+plot_obs_vs_expected2
+dev.off()
+
+#-------------------------------------------------------------------
+# Breeding origin assignments at each station
+#-------------------------------------------------------------------
 
 station_assignment_plot <- ggplot(station_assignments, 
                                   aes(x = Year, y = n, fill = Stratum)) +
@@ -808,13 +862,198 @@ station_assignment_plot <- ggplot(station_assignments,
   facet_wrap(Station~., scales = "free")+
   xlim(c(range(station_assignments$Year)))+
   ggtitle(focal_season)+
+  ylab("Number of bird samples analyzed")+
   theme(axis.text.x = element_text(angle = 45, hjust=1))
 
 station_assignment_plot
 
-# png(file = paste0(output_directory,"figures/Results_Origins_Observed.png"), units = "in", width = 8, height = 6, res = 600)
-# station_assignment_plot
-# dev.off()
+png(file = paste0(output_directory,"figures/Appendix_S2_breeding_origins.png"), units = "in", width = 8, height = 6, res = 600)
+station_assignment_plot
+dev.off()
+
+# ***************************************************************
+# ***************************************************************
+# PART 5: PLOT MODEL ESTIMATES
+# ***************************************************************
+# ***************************************************************
+
+# -------------------------------------------------------------------
+# Time series of regional population indices
+# -------------------------------------------------------------------
+
+X_summary <- out$sims.list$X %>%
+  reshape2::melt() %>%
+  rename(sample = Var1, stratum_number = Var2, year_number = Var3, X = value) %>%
+  group_by(stratum_number,year_number) %>%
+  summarize(X_mean = mean(X),
+            X_lcl = quantile(X,0.025),
+            X_ucl = quantile(X,0.975))
+X_summary$Year = year_vec[X_summary$year_number]
+X_summary$Stratum = c("East","West")[X_summary$stratum_number] %>% factor(levels = c("West","East"))
+
+regional_trajectory_plot <- ggplot(X_summary,
+                                   aes(x = Year, 
+                                       y = X_mean, 
+                                       ymin = X_lcl, 
+                                       ymax = X_ucl, 
+                                       fill = Stratum, 
+                                       col = Stratum))+
+  geom_ribbon(alpha = 0.2, col = "transparent")+
+  geom_line(linewidth = 2)+
+  scale_color_manual(values = strata_colours, guide = FALSE)+
+  scale_fill_manual(values = strata_colours, guide = FALSE)+
+  
+  facet_grid(Stratum~.)+
+  ylab("Regional index")+
+  xlab("Year")+
+  ggtitle("Regional trajectory\n\nPre-breeding migration")
+
+regional_trajectory_plot
+
+png(file = paste0(output_directory,"figures/Appendix_S3_regional_index.png"), units = "in", width = 6, height = 6, res = 600)
+regional_trajectory_plot
+dev.off()
+
+# -------------------------------------------------------------------
+# Estimates of change since 2000
+# -------------------------------------------------------------------
+
+change_since_2000 <- data.frame()
+
+for (j in 1:jags_data$nstrata){
+  for (t in 1:jags_data$nyear){
+    
+    log_change <- log(out$sims.list$X[,j,t]/out$sims.list$X[,j,1])
+    percent_change <- 100 * (out$sims.list$X[,j,t]-out$sims.list$X[,j,1])/out$sims.list$X[,j,1]
+    
+    change_since_2000 <- rbind(change_since_2000,
+                               data.frame(stratum_number = j,
+                                          year_number = t,
+                                          log_change_q025 = quantile(log_change,0.025),
+                                          log_change_q50 = quantile(log_change,0.5),
+                                          log_change_q975 = quantile(log_change,0.975),
+                                          
+                                          percent_change_q025 = quantile(percent_change,0.025),
+                                          percent_change_q50 = quantile(percent_change,0.5),
+                                          percent_change_q975 = quantile(percent_change,0.975),
+                                          
+                                          prob_decline = mean(log_change<0)
+                               ))
+  }
+}
+
+
+change_since_2000$Year = year_vec[change_since_2000$year_number]
+change_since_2000$Stratum = c("East","West")[change_since_2000$stratum_number] %>% factor(levels = c("West","East"))
+
+head(change_since_2000)
+
+# Convert log-scale change to percent change using: 100*(exp(log_change)-1)
+y_axis_breaks <- c(0,100,300,900)
+log_breaks <- log(y_axis_breaks/100+1)
+log_breaks <- c(-log_breaks,log_breaks) %>% unique() %>% sort()
+y_axis_breaks <- 100*(exp(log_breaks)-1)
+
+y_axis_labels <- y_axis_breaks %>% round() %>% paste0()
+y_axis_labels[which(y_axis_breaks>0)] <- paste0("+",y_axis_labels[which(y_axis_breaks>0)])
+y_axis_labels <- paste0(y_axis_labels," %")
+
+plot_change_since_2000 <- ggplot(change_since_2000,
+                                 aes(x = Year, 
+                                     y = log_change_q50, 
+                                     ymin = log_change_q025, 
+                                     ymax = log_change_q975, 
+                                     fill = Stratum, 
+                                     col = Stratum))+
+  geom_ribbon(alpha = 0.2, col = "transparent")+
+  geom_line(linewidth = 2)+
+  scale_color_manual(values = strata_colours, guide = FALSE)+
+  scale_fill_manual(values = strata_colours, guide = FALSE)+
+  
+  scale_y_continuous(breaks = log_breaks, labels = y_axis_labels)+
+  
+  facet_grid(Stratum~.)+
+  ylab("Percent change since 2000")+
+  xlab("Year")+
+  geom_hline(yintercept = 0, linetype = 2)+
+  ggtitle("Estimated percent change relative to 2000\n\nPre-breeding migration")
+
+plot_change_since_2000
+
+png(file = paste0(output_directory,"figures/Appendix_S4_change_since_2000.png"), units = "in", width = 6, height = 6, res = 600)
+plot_change_since_2000
+dev.off()
+
+# -------------------------------------------------------------------
+# Estimates of change since 2008
+# -------------------------------------------------------------------
+
+change_since_2008 <- data.frame()
+
+for (j in 1:jags_data$nstrata){
+  for (t in (jags_data$nyear-10):jags_data$nyear){
+    
+    log_change <- log(out$sims.list$X[,j,t]/out$sims.list$X[,j,jags_data$nyear-10])
+    percent_change <- 100 * (out$sims.list$X[,j,t]-out$sims.list$X[,j,jags_data$nyear-10])/out$sims.list$X[,j,jags_data$nyear-10]
+    
+    change_since_2008 <- rbind(change_since_2008,
+                               data.frame(stratum_number = j,
+                                          year_number = t,
+                                          log_change_q025 = quantile(log_change,0.025),
+                                          log_change_q50 = quantile(log_change,0.5),
+                                          log_change_q975 = quantile(log_change,0.975),
+                                          
+                                          percent_change_q025 = quantile(percent_change,0.025),
+                                          percent_change_q50 = quantile(percent_change,0.5),
+                                          percent_change_q975 = quantile(percent_change,0.975),
+                                          
+                                          prob_decline = mean(log_change<0)
+                               ))
+  }
+}
+
+
+change_since_2008$Year = year_vec[change_since_2008$year_number]
+change_since_2008$Stratum = c("East","West")[change_since_2008$stratum_number] %>% factor(levels = c("West","East"))
+
+head(change_since_2008)
+
+# Convert log-scale change to percent change using: 100*(exp(log_change)-1)
+
+y_axis_breaks <- c(0,100,300,900)
+log_breaks <- log(y_axis_breaks/100+1)
+log_breaks <- c(-log_breaks,log_breaks) %>% unique() %>% sort()
+y_axis_breaks <- 100*(exp(log_breaks)-1)
+
+y_axis_labels <- y_axis_breaks %>% round() %>% paste0()
+y_axis_labels[which(y_axis_breaks>0)] <- paste0("+",y_axis_labels[which(y_axis_breaks>0)])
+y_axis_labels <- paste0(y_axis_labels," %")
+
+plot_change_since_2008 <- ggplot(change_since_2008,
+                                 aes(x = Year, 
+                                     y = log_change_q50, 
+                                     ymin = log_change_q025, 
+                                     ymax = log_change_q975, 
+                                     fill = Stratum, 
+                                     col = Stratum))+
+  geom_ribbon(alpha = 0.2, col = "transparent")+
+  geom_line(linewidth = 2)+
+  scale_color_manual(values = strata_colours, guide = FALSE)+
+  scale_fill_manual(values = strata_colours, guide = FALSE)+
+  
+  scale_y_continuous(breaks = log_breaks, labels = y_axis_labels)+
+  
+  facet_grid(Stratum~.)+
+  ylab("Percent change since 2008")+
+  xlab("Year")+
+  geom_hline(yintercept = 0, linetype = 2)+
+  ggtitle("Estimated percent change relative to 2008\n\nPre-breeding migration")
+
+plot_change_since_2008
+
+png(file = paste0(output_directory,"figures/Appendix_S5_change_since_2008.png"), units = "in", width = 6, height = 6, res = 600)
+plot_change_since_2008
+dev.off()
 
 #-------------------------------------------------------------------
 # Station-level composition each year
@@ -856,127 +1095,18 @@ station_composition_plot <- ggplot(station_composition, aes(x = Year, y = index_
   
   scale_alpha_manual(values=c(0.2,1), guide = "none")+
   facet_wrap(Station~., scales = "free")+
-  ggtitle(focal_season)+
+  ggtitle("Esimates of annual station composition\n\nPre-breeding migration")+
   theme(axis.text.x = element_text(angle = 45, hjust=1))
 
 station_composition_plot
 
-# png(file = paste0(output_directory,"figures/Results_Origins_Estimated.png.png"), units = "in", width = 8, height = 6, res = 600)
-# station_composition_plot
-# dev.off()
-
-# -----------------------------------------
-# Map of study sites and which ones have isotopes available
-# -----------------------------------------
-
-BCR_poly <- strata$BCR_poly
-xlim <- c(-162, -56)
-ylim <- c(35, 70)
-
-# Add indicator for assignment information available
-station_data_summarized_sf$assignments <- "No"
-station_data_summarized_sf$assignments[station_data_summarized_sf$station %in% na.omit(station_assignments)$Station] <- "Yes"
-
-origins_known <- colSums(rho.fix == 0)>0
-origins_known <- origins_known[which(origins_known)]
-station_data_summarized_sf$assignments[which(station_data_summarized_sf$station %in% names(origins_known))] <- "Yes"
-
-strata_sf$Strata <- factor(strata_sf$Strata, levels = c("West","East"))
-strata_fig <- ggplot(data = strata_sf) +
-  geom_sf(data = BCR_poly, fill = "gray96", col = "gray85")+
-  geom_sf(data = strata_sf, aes(fill = Strata), alpha = 0.7)+
-  xlab("Longitude")+
-  ylab("Latitude")+
-  scale_fill_manual(values = strata_colours, name = "Stratum") +
-  theme(panel.background = element_rect(fill = "transparent", colour = "black"),
-        panel.border = element_rect(fill = "transparent", color = "black"),
-        panel.grid.major = element_line(color = "gray90", linetype = "dashed", size = 0.5))+
-  geom_sf(data = station_data_summarized_sf ,size = 1, alpha = 0.5, shape = 7,col = "black")+
-  geom_sf_label_repel(data = station_data_summarized_sf,
-                      aes(label = station,
-                          col = assignments),
-                      max.overlaps = 50,
-                      size = 1.5, alpha = 0.8)+
-  scale_color_manual(values = c("gray50","black"), name = "Breeding Origins Estimated") +
-  ggtitle(focal_season)+
-  coord_sf(xlim = xlim, ylim = ylim)
-#strata_fig
-
-# png(file = paste0(output_directory,"figures/Results_Origins_Assignment_Map.png"), units = "in", width = 8, height = 5, res = 600)
-# strata_fig 
-# dev.off()
+png(file = paste0(output_directory,"figures/Appendix_S6_station_composition.png"), units = "in", width = 6, height = 6, res = 600)
+station_composition_plot
+dev.off()
 
 #-------------------------------------------------------------------
-# Station-level indices each year
+# Trend estimates within each stratum, and nationally
 #-------------------------------------------------------------------
-
-station_indices_full <- out$sims.list$T %>% 
-  reshape2::melt() %>%
-  rename(samp = Var1, 
-         station_number = Var2, 
-         year_number = Var3, 
-         index = value)
-
-station_indices_full$Station = station_names[station_indices_full$station_number]
-station_indices_full$Year = year_vec[station_indices_full$year_number]
-
-station_indices <- station_indices_full %>%
-  group_by(Station,Year) %>%
-  summarize(index_mean = mean(index),
-            index_q50 = quantile(index,0.5),
-            index_q025 = quantile(index,0.025),
-            index_q975 = quantile(index,0.975))
-
-station_indices <- full_join(station_indices, station_years_with_counts)
-
-station_index_plot <- ggplot(data = na.omit(station_indices), 
-                             aes(x = Year, 
-                                 y = index_mean, 
-                                 ymin = index_q025, 
-                                 ymax = index_q975)) +
-  geom_point()+
-  geom_errorbar(width=0)+
-  facet_wrap(Station~., scales = "free_y")
-
-station_index_plot
-
-#write.csv(station_indices,paste0(output_directory,"tables/station_indices_Spring.csv"),row.names = FALSE)
-
-# png(file = paste0(output_directory,"figures/Results_Station_Indices.png"), units = "in", width = 8, height = 5, res = 600)
-# station_index_plot
-# dev.off()
-
-# -------------------------------------------------------------------
-# Time series of regional population indices
-# -------------------------------------------------------------------
-
-X_summary <- out$sims.list$X %>%
-  reshape2::melt() %>%
-  rename(sample = Var1, stratum_number = Var2, year_number = Var3, X = value) %>%
-  group_by(stratum_number,year_number) %>%
-  summarize(X_mean = mean(X),
-            X_lcl = quantile(X,0.025),
-            X_ucl = quantile(X,0.975))
-X_summary$Year = year_vec[X_summary$year_number]
-X_summary$Stratum = c("East","West")[X_summary$stratum_number] %>% factor(levels = c("West","East"))
-
-regional_trajectory_plot <- ggplot(X_summary,aes(x = Year, y = X_mean, ymin = X_lcl, ymax = X_ucl, fill = Stratum, col = Stratum))+
-  geom_ribbon(alpha = 0.2)+
-  geom_line()+
-  facet_grid(Stratum~.)+
-  ylab("Regional index")+
-  xlab("Year")+
-  ggtitle("Regional trajectory")
-
-regional_trajectory_plot
-# 
-# png(file = paste0(output_directory,"figures/Results_Regional_Trajectory.png"), units = "in", width = 8, height = 5, res = 600)
-# regional_trajectory_plot
-# dev.off()
-
-# -------------------------------------------------------------------
-# Calculate study-wide and 10-year trends within each stratum
-# -------------------------------------------------------------------
 
 trend_fn <- function(N2,N1,year_interval){
   percent_change = (N2-N1)/N1 * 100
@@ -984,417 +1114,526 @@ trend_fn <- function(N2,N1,year_interval){
   return(trend)
 }
 
-trend_East_full <- trend_fn(N2 = out$sims.list$X[,1,19],
-                            N1 = out$sims.list$X[,1,1],
-                            year_interval = 19-1)
-quantile(trend_East_full,c(0.025,0.5,0.975))
-mean(trend_East_full<0)
-
-trend_West_full <- trend_fn(N2 = out$sims.list$X[,2,19],
-                            N1 = out$sims.list$X[,2,1],
-                            year_interval = 19-1)
-quantile(trend_West_full,c(0.025,0.5,0.975))
-mean(trend_West_full<0)
-
-trend_East_10 <- trend_fn(N2 = out$sims.list$X[,1,19],
-                            N1 = out$sims.list$X[,1,9],
-                            year_interval = 19-9)
-quantile(trend_East_10,c(0.025,0.5,0.975))
-mean(trend_East_10<0)
-
-trend_West_10 <- trend_fn(N2 = out$sims.list$X[,2,19],
-                            N1 = out$sims.list$X[,2,9],
-                            year_interval = 19-9)
-quantile(trend_West_10,c(0.025,0.5,0.975))
-mean(trend_West_10<0)
-
-
-
-# -------------------------------------------------------------------
-# Calculate regional and national abundance in each year using BAM's bootstrap replicates
-# -------------------------------------------------------------------
-
-# Specify year represented by BAM density raster
-bam_year <- 2011
-bam_year_index <- which(year_vec == bam_year)
-bam_bootstrap_files <- list.files("analysis/0_data/bam_density_raster/bam_bootstrap/")
-
-N_strata_df_total <- data.frame()
-for (i in 1:length(bam_bootstrap_files)){
-  
-  # load raster
-  bam <- raster(paste0("analysis/0_data/bam_density_raster/bam_bootstrap/",bam_bootstrap_files[i]))
-  
-  # Crop to stratum boundaries
-  strata_sp <- strata_sf %>% st_transform(crs = projection(bam)) %>% as('Spatial')
-  bam <- crop(bam,strata_sp) %>% mask(strata_sp)
-  
-  # Extract cumulative abundance in each stratum
-  stratum_N <- rep(NA,jags_data$nstrata)
-  for (r in 1:nstrata){
-    bam_stratum <- crop(bam,strata_sp[r,]) %>% mask(strata_sp[r,]) 
-    stratum_N[r] <- sum(values(bam_stratum),na.rm = TRUE) * 100 # Multiply by 100 because each pixel is 100 ha (and bam is density in males/ha)
-  }
-  
-  # Empty array to store total abundances
-  logN_array <- array(NA,c(out$mcmc.info$n.samples,jags_data$nyear,jags_data$nstrata))
-  
-  # Loop through strata
-  for (j in 1:nstrata){
-    
-    # BAM estimate for this stratum in the year of the BAM estimate
-    logN_array[,bam_year_index,j] <- log(stratum_N[j])
-    
-    # Work forwards from the year of the BAM estimate
-    if (bam_year_index < jags_data$nyear){
-      for (y in bam_year_index:(jags_data$nyear-1)){
-        
-        # Posterior samples of annual growth rate for this year
-        annual_growth <- log(out$sims.list$X[,j,y+1]/out$sims.list$X[,j,y])
-        logN_array[,y+1,j] <- logN_array[,y,j] + annual_growth
-      }
-    }
-    
-    # Work backwards from the year of the BAM estimate
-    if (bam_year_index > 1 ){
-      for (y in bam_year_index:2){
-        
-        # Posterior samples of annual growth rate for this year
-        annual_growth <- log(out$sims.list$X[,j,y]/out$sims.list$X[,j,y-1])
-        logN_array[,y-1,j] <- logN_array[,y,j] - annual_growth
-      }
+trend_df <- data.frame()
+for (s in 1:jags_data$nstrata){
+  for (start_year in 1:jags_data$nyear){
+    for (end_year in 1:jags_data$nyear){
+      if (end_year <= start_year) next
+      
+      trend_est <- trend_fn(N2 = out$sims.list$X[,s,end_year], N1 = out$sims.list$X[,s,start_year], year_interval = end_year - start_year)
+      
+      trend_df <- rbind(trend_df, data.frame(stratum_number = s,
+                                             start_year = start_year,
+                                             end_year = end_year,
+                                             trend_est_q50 = quantile(trend_est,0.5),
+                                             trend_est_q025 = quantile(trend_est,0.025),
+                                             trend_est_q975 = quantile(trend_est,0.975),
+                                             prob_decline = round(mean(trend_est<0),2)))
     }
   }
-  
-  N_strata_df <- melt(logN_array) %>% 
-    rename(mcmc = Var1, year = Var2, stratum = Var3, logN = value) %>%
-    add_column(bootstrap_rep = bam_bootstrap_files[i])
-  N_strata_df$N <- exp(N_strata_df$logN)
-  
-  N_strata_df_total <- rbind(N_strata_df_total,N_strata_df)
-  
-  print(i)
   
 }
+trend_df <- trend_df %>% arrange(start_year)
+trend_df$start_year_abs <- year_vec[trend_df$start_year]
+trend_df$end_year_abs <- year_vec[trend_df$end_year]
+trend_df$Stratum <- c("East","West")[trend_df$stratum_number]
 
-N_strata_df_total$year_abs <- year_vec[N_strata_df_total$year]
 
-# Summarize estimates
-N_strata_estimates <- N_strata_df_total %>% 
-  group_by(stratum,year) %>%
-  summarize(N_q025 = quantile(N,0.025),
-            N_q500 = quantile(N,0.500),
-            N_q975 = quantile(N,0.975)
-  )
+trend_df$'Trend Period' <- paste0(trend_df$start_year_abs," to ", trend_df$end_year_abs)
+trend_df$'Trend Length (Yrs)' <- trend_df$end_year_abs - trend_df$start_year_abs
+trend_df$'Trend Estimate' <- paste0(round(trend_df$trend_est_q50,1)," (",round(trend_df$trend_est_q025,1)," to ",round(trend_df$trend_est_q975,1),")")
+trend_df$'P(Decline)' <- trend_df$prob_decline
+trend_df$'Width of 95% CRI' <- round(trend_df$trend_est_q975 - trend_df$trend_est_q025,2)
 
-N_strata_estimates$year_abs <- year_vec[N_strata_estimates$year]
-N_strata_estimates$stratum_name <- dimnames(jags_data$N_origin)[[1]][N_strata_estimates$stratum]
-# save(N_strata_estimates, file = paste0(output_directory,"/R_objects/",focal_season,"_N_strata_estimates.RData"))
+trend_summary <- trend_df %>%
+  subset(end_year_abs == max(trend_df$end_year_abs) & trend_df$'Trend Length' %in% c(10,max(trend_df$'Trend Length'))) %>%
+  dplyr::select(Stratum,'Trend Period','Trend Length (Yrs)',"Trend Estimate",'Width of 95% CRI','P(Decline)') %>%
+  arrange('Trend Length (Yrs)')
+trend_summary
 
-# National abundance
-N_national_estimates_boot <- N_strata_df_total %>% 
-  group_by(year,mcmc,bootstrap_rep) %>%
-  
-  # Sum across all strata
-  summarize(N = sum(N))
-
-N_national_estimates <- N_national_estimates_boot %>%
-  group_by(year) %>%                    
-  
-  # Summarize across BAM bootstrap replicates
-  summarize(N_q025 = quantile(N,0.025),
-            N_q500 = quantile(N,0.500),
-            N_q975 = quantile(N,0.975))
-N_national_estimates$year_abs <- year_vec[N_national_estimates$year]
-# save(N_national_estimates, file = paste0(output_directory,"/R_objects/",focal_season,"_N_national_estimates.RData"))
+write.csv(trend_summary, file = paste0(output_directory,"/tables/",focal_season,"_trend_summary.csv"),row.names = FALSE)
 
 #-------------------------------------------------------------------
-# Calculate trends and percent change across specific intervals
+# Estimate relative abundance within each stratum
 #-------------------------------------------------------------------
-national_trend_df <- data.frame()
+require(ebirdst)
+require(terra)
 
-# 10-year trends and study-wide trends
-for (year_interval in c(10,length(unique(N_strata_df_total$year))-1)){
-  for (year in 1:(max(N_national_estimates_boot$year)-1)){
-    for (bootrep in unique(N_national_estimates_boot$bootstrap_rep)){
-      
-      start_year_pchange <- year
-      end_year_pchange <- year+year_interval
-      
-      if (!(end_year_pchange %in% N_national_estimates_boot$year)) next
-      
-      N1 <- subset(N_national_estimates_boot,year == start_year_pchange & bootstrap_rep == bootrep)$N
-      N2 <- subset(N_national_estimates_boot, year == end_year_pchange & bootstrap_rep == bootrep)$N
-      
-      percent_change = (N2-N1)/N1 * 100
-      trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
-      
-      tmp <- data.frame(mcmc = 1:length(trend),
-                        end_year_pchange = end_year_pchange,
-                        year_interval = year_interval,
-                        percent_change = percent_change,
-                        trend = trend)
-      
-      national_trend_df <- rbind(national_trend_df, tmp)
-    } # bootrep
-    
-    print(year)
-  } # Start year
-} # Year interval
+# Download eBird relative abundance map
 
-national_trend_df$stratum_name <- "National"
-national_trend_df$end_year <- year_vec[national_trend_df$end_year_pchange]
-national_trend_df$start_year <- national_trend_df$end_year - national_trend_df$year_interval
+# Need to set access key (only once) before downloading ranges
+# ebirdst::set_ebirdst_access_key()
 
+# Ensure path is correctly set
+usethis::edit_r_environ()
 
-# Summarize credible intervals across bootstrap replicates
-national_trend_df_summary <- national_trend_df %>%
-  group_by(stratum_name,start_year,end_year, year_interval) %>%
-  summarize(percent_change_mean = mean(percent_change),
-            percent_change_q025 = quantile(percent_change,0.025),
-            percent_change_q975 = quantile(percent_change,0.975),
-            
-            trend_mean = mean(trend),
-            trend_q025 = quantile(trend,0.025),
-            trend_q975 = quantile(trend,0.975),
-            
-            prob_increase = mean(percent_change > 0),
-            prob_30_decline = mean(percent_change <= -30),
-            prob_50_decline = mean(percent_change <= -50))
+# This should read:
+# EBIRDST_KEY='ntqm1ha68fov'
+# EBIRDST_DATA_DIR='D:/Working_Files/1_Projects/Landbirds/BLPW-migration-trends/0_data/eBird/'
 
+ebirdst_download("Blackpoll Warbler") 
 
-# Stratum-level analysis
-stratum_trend_df <- data.frame()
-for (year_interval in c(10,length(unique(N_strata_df_total$year))-1)){
-  for (year in 1:(max(N_strata_df_total$year)-1)){
-    for (current_stratum in 1:nstrata){
-      
-      start_year_pchange <- year
-      end_year_pchange <- year+year_interval
-      
-      if (!(end_year_pchange %in% N_strata_df_total$year)) next
-      
-      N1 <- subset(N_strata_df_total,year == start_year_pchange & bootstrap_rep == N_national_estimates_boot$bootstrap_rep[1] & stratum == current_stratum)$N
-      N2 <- subset(N_strata_df_total, year == end_year_pchange & bootstrap_rep == N_national_estimates_boot$bootstrap_rep[1] & stratum == current_stratum)$N
-      
-      percent_change = (N2-N1)/N1 * 100
-      trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
-      
-      tmp <- data.frame(mcmc = 1:length(r),
-                        stratum = current_stratum,
-                        end_year_pchange = end_year_pchange,
-                        year_interval = year_interval,
-                        percent_change = percent_change,
-                        trend = trend)
-      
-      stratum_trend_df <- rbind(stratum_trend_df, tmp)
-      
-    } # stratum
-    
-    print(year)
-  } # Start year
-} # Year interval
-
-stratum_trend_df$stratum_name <- dimnames(jags_data$N_origin)[[1]][stratum_trend_df$stratum]
-stratum_trend_df$end_year <- year_vec[stratum_trend_df$end_year_pchange]
-stratum_trend_df$start_year <- stratum_trend_df$end_year - stratum_trend_df$year_interval
-
-# Summarize credible intervals across bootstrap replicates
-stratum_trend_df_summary <- stratum_trend_df %>%
-  group_by(stratum_name,start_year,end_year, year_interval) %>%
-  summarize(percent_change_mean = mean(percent_change),
-            percent_change_q025 = quantile(percent_change,0.025),
-            percent_change_q975 = quantile(percent_change,0.975),
-            
-            trend_mean = mean(trend),
-            trend_q025 = quantile(trend,0.025),
-            trend_q975 = quantile(trend,0.975),
-            
-            prob_increase = mean(percent_change > 0),
-            prob_30_decline = mean(percent_change <= -30),
-            prob_50_decline = mean(percent_change <= -50))
-
-
-trend_df_summary <- bind_rows(national_trend_df_summary,stratum_trend_df_summary) %>%
-  add_column(season = focal_season) %>%
-  relocate(stratum_name,season)
-
-# Rearrange columns
-trend_df_summary <- trend_df_summary %>% 
-  ungroup() %>%
-  dplyr::select(stratum_name,season,start_year, end_year,
-                trend_mean,trend_q025,trend_q975,
-                percent_change_mean,percent_change_q025,percent_change_q975,
-                prob_increase,prob_30_decline,prob_50_decline)
-
-# SAVE RELEVANT OUTPUT / SUMMARIES IN TABLE FORMAT
-# write.csv(trend_df_summary,paste0(output_directory,"tables/trend_and_change_estimates.csv"),row.names = FALSE)
-
-# *****************************************************
-# *****************************************************
-# PART 3: GENERATE SOME PLOTS OF DATA AND RESULT SUMMARIES
-# *****************************************************
-# *****************************************************
-
-# Trajectory over last 10 years
-N_strata_estimates$stratum_name = factor(N_strata_estimates$stratum_name, levels = c("West","East"))
-
-N_strata_10yr_plot <- ggplot(subset(N_strata_estimates,year_abs %in% ((end_year-10):end_year))) +
-  geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975, fill = stratum_name), alpha = 0.3)+
-  geom_line(aes(x = year_abs, y = N_q500, col = stratum_name))+
-  scale_fill_manual(values = strata_colours, name = "Stratum")+
-  scale_color_manual(values = strata_colours, name = "Stratum")+
-  xlab("Year")+
-  ylab("Abundance")+
-  facet_grid(.~stratum_name)+
-  scale_y_continuous(label=comma)+
-  scale_x_continuous(breaks = seq(2008,2018,length.out = 3))+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_blank(),
-    panel.spacing = unit(1, "lines"),
-    legend.position=c(.93,.75))+
-  coord_cartesian(ylim = c(0,75000000))
-N_strata_10yr_plot
-
-# png(file = paste0(output_directory,"figures/Trajectory_Strata_10yr.png"), units = "in", width = 6, height = 5, res = 600)
-# N_strata_10yr_plot
-# dev.off()
-
-# Trajectory over entire time series
-N_strata_18yr_plot <- ggplot(N_strata_estimates) +
-  geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975, fill = stratum_name), alpha = 0.3)+
-  geom_line(aes(x = year_abs, y = N_q500, col = stratum_name))+
-  scale_fill_manual(values = strata_colours, name = "Stratum", guide = FALSE)+
-  scale_color_manual(values = strata_colours, name = "Stratum", guide = FALSE)+
-  xlab("Year")+
-  ylab("Abundance")+
-  facet_grid(stratum_name~.)+
-  scale_y_continuous(label=comma)+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_blank(),
-    panel.spacing = unit(1, "lines"),
-    legend.position=c(.93,.75))+
-  coord_cartesian(ylim = c(0,75000000))
-
-# png(file = paste0(output_directory,"figures/Trajectory_Strata_18yr.png"), units = "in", width = 6, height = 5, res = 600)
-# N_strata_18yr_plot
-# dev.off()
-
-N_national_10yr_plot <- ggplot(subset(N_national_estimates,year_abs %in% ((end_year-10):end_year))) +
-  geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975), alpha = 0.3)+
-  geom_line(aes(x = year_abs, y = N_q500))+
-  xlab("Year")+
-  ylab("National Abundance")+
-  ggtitle("National trajectory")+
-  scale_x_continuous(breaks = seq(2008,2018,length.out = 3))+
-  scale_y_continuous(label=comma)+
-  coord_cartesian(ylim = c(0,75000000))
-
-# png(file = paste0(output_directory,"figures/Trajectory_10yr.png"), units = "in", width = 6, height = 5, res = 600)
-# N_national_10yr_plot
-# dev.off()
-
-N_national_18yr_plot <- ggplot(N_national_estimates) +
-  geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975), alpha = 0.3)+
-  geom_line(aes(x = year_abs, y = N_q500))+
-  xlab("Year")+
-  ylab("National Abundance")+
-  ggtitle("National trajectory")+
-  scale_y_continuous(label=comma)+
-  coord_cartesian(ylim = c(0,75000000))
+# #-------------------------------------------------------------------
+# # Station-level indices each year
+# #-------------------------------------------------------------------
 # 
-# png(file = paste0(output_directory,"figures/Trajectory_18yr.png"), units = "in", width = 6, height = 5, res = 600)
-# N_national_18yr_plot
-# dev.off()
-
-# ---------------------------------------------
-# Violin plot of posterior trend estimates
-# ---------------------------------------------
-
-# Individual mcmc samples
-trend_df = bind_rows(stratum_trend_df,national_trend_df)
-trend_df$stratum_name = factor(trend_df$stratum_name, levels = c("National","West","East"))
-
-decline_text = subset(trend_df_summary, end_year == 2018 & start_year == 2008)
-
-# 10 year trend
-trend_violin_10yr = ggplot(subset(trend_df, end_year == 2018 & year_interval == 10), 
-                           aes(x = stratum_name, 
-                               y = trend, 
-                               fill = stratum_name)) +
-  geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
-  geom_violin(draw_quantiles = c(0.025,0.5,0.975), 
-              alpha = 0.7,
-              col = "gray35", size = 1) +
-  scale_fill_manual(values = c("gray80",strata_colours), guide = "none")+
-  geom_text(data = decline_text, aes(x = stratum_name, y = -25, label = 1-round(prob_increase,2)), fontface = "bold")+
-  xlab("Stratum")+
-  ylab("Trend\n(% change per year)")+
-  coord_cartesian(ylim = c(-25,25))+
-  ggtitle("10 year trend")
-print(trend_violin_10yr)
-
-png(file = paste0(output_directory,"figures/Trend_Violin_10yr.png"), units = "in", width = 6, height = 5, res = 600)
-trend_violin_10yr
-dev.off()
-
-# png(file = paste0(figure_directory,"/trend_violin_10yr.png"), units = "in", width = 6, height = 3, res = 1000)
+# station_indices_full <- out$sims.list$T %>% 
+#   reshape2::melt() %>%
+#   rename(samp = Var1, 
+#          station_number = Var2, 
+#          year_number = Var3, 
+#          index = value)
+# 
+# station_indices_full$Station = station_names[station_indices_full$station_number]
+# station_indices_full$Year = year_vec[station_indices_full$year_number]
+# 
+# station_indices <- station_indices_full %>%
+#   group_by(Station,Year) %>%
+#   summarize(index_mean = mean(index),
+#             index_q50 = quantile(index,0.5),
+#             index_q025 = quantile(index,0.025),
+#             index_q975 = quantile(index,0.975))
+# 
+# station_indices <- full_join(station_indices, station_years_with_counts)
+# 
+# station_index_plot <- ggplot(data = na.omit(station_indices), 
+#                              aes(x = Year, 
+#                                  y = index_mean, 
+#                                  ymin = index_q025, 
+#                                  ymax = index_q975)) +
+#   geom_point()+
+#   geom_errorbar(width=0)+
+#   facet_wrap(Station~., scales = "free_y")
+# 
+# station_index_plot
+# 
+# #write.csv(station_indices,paste0(output_directory,"tables/station_indices_Spring.csv"),row.names = FALSE)
+# 
+# # png(file = paste0(output_directory,"figures/Results_Station_Indices.png"), units = "in", width = 8, height = 5, res = 600)
+# # station_index_plot
+# # dev.off()
+# 
+# # -------------------------------------------------------------------
+# # Calculate study-wide and 10-year trends within each stratum
+# # -------------------------------------------------------------------
+# 
+# trend_fn <- function(N2,N1,year_interval){
+#   percent_change = (N2-N1)/N1 * 100
+#   trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
+#   return(trend)
+# }
+# 
+# trend_East_full <- trend_fn(N2 = out$sims.list$X[,1,19],
+#                             N1 = out$sims.list$X[,1,1],
+#                             year_interval = 19-1)
+# quantile(trend_East_full,c(0.025,0.5,0.975))
+# mean(trend_East_full<0)
+# 
+# trend_West_full <- trend_fn(N2 = out$sims.list$X[,2,19],
+#                             N1 = out$sims.list$X[,2,1],
+#                             year_interval = 19-1)
+# quantile(trend_West_full,c(0.025,0.5,0.975))
+# mean(trend_West_full<0)
+# 
+# trend_East_10 <- trend_fn(N2 = out$sims.list$X[,1,19],
+#                             N1 = out$sims.list$X[,1,9],
+#                             year_interval = 19-9)
+# quantile(trend_East_10,c(0.025,0.5,0.975))
+# mean(trend_East_10<0)
+# 
+# trend_West_10 <- trend_fn(N2 = out$sims.list$X[,2,19],
+#                             N1 = out$sims.list$X[,2,9],
+#                             year_interval = 19-9)
+# quantile(trend_West_10,c(0.025,0.5,0.975))
+# mean(trend_West_10<0)
+# 
+# 
+# 
+# # -------------------------------------------------------------------
+# # Calculate regional and national abundance in each year using BAM's bootstrap replicates
+# # -------------------------------------------------------------------
+# 
+# # Specify year represented by BAM density raster
+# bam_year <- 2011
+# bam_year_index <- which(year_vec == bam_year)
+# bam_bootstrap_files <- list.files("analysis/0_data/bam_density_raster/bam_bootstrap/")
+# 
+# N_strata_df_total <- data.frame()
+# for (i in 1:length(bam_bootstrap_files)){
+#   
+#   # load raster
+#   bam <- raster(paste0("analysis/0_data/bam_density_raster/bam_bootstrap/",bam_bootstrap_files[i]))
+#   
+#   # Crop to stratum boundaries
+#   strata_sp <- strata_sf %>% st_transform(crs = projection(bam)) %>% as('Spatial')
+#   bam <- crop(bam,strata_sp) %>% mask(strata_sp)
+#   
+#   # Extract cumulative abundance in each stratum
+#   stratum_N <- rep(NA,jags_data$nstrata)
+#   for (r in 1:nstrata){
+#     bam_stratum <- crop(bam,strata_sp[r,]) %>% mask(strata_sp[r,]) 
+#     stratum_N[r] <- sum(values(bam_stratum),na.rm = TRUE) * 100 # Multiply by 100 because each pixel is 100 ha (and bam is density in males/ha)
+#   }
+#   
+#   # Empty array to store total abundances
+#   logN_array <- array(NA,c(out$mcmc.info$n.samples,jags_data$nyear,jags_data$nstrata))
+#   
+#   # Loop through strata
+#   for (j in 1:nstrata){
+#     
+#     # BAM estimate for this stratum in the year of the BAM estimate
+#     logN_array[,bam_year_index,j] <- log(stratum_N[j])
+#     
+#     # Work forwards from the year of the BAM estimate
+#     if (bam_year_index < jags_data$nyear){
+#       for (y in bam_year_index:(jags_data$nyear-1)){
+#         
+#         # Posterior samples of annual growth rate for this year
+#         annual_growth <- log(out$sims.list$X[,j,y+1]/out$sims.list$X[,j,y])
+#         logN_array[,y+1,j] <- logN_array[,y,j] + annual_growth
+#       }
+#     }
+#     
+#     # Work backwards from the year of the BAM estimate
+#     if (bam_year_index > 1 ){
+#       for (y in bam_year_index:2){
+#         
+#         # Posterior samples of annual growth rate for this year
+#         annual_growth <- log(out$sims.list$X[,j,y]/out$sims.list$X[,j,y-1])
+#         logN_array[,y-1,j] <- logN_array[,y,j] - annual_growth
+#       }
+#     }
+#   }
+#   
+#   N_strata_df <- melt(logN_array) %>% 
+#     rename(mcmc = Var1, year = Var2, stratum = Var3, logN = value) %>%
+#     add_column(bootstrap_rep = bam_bootstrap_files[i])
+#   N_strata_df$N <- exp(N_strata_df$logN)
+#   
+#   N_strata_df_total <- rbind(N_strata_df_total,N_strata_df)
+#   
+#   print(i)
+#   
+# }
+# 
+# N_strata_df_total$year_abs <- year_vec[N_strata_df_total$year]
+# 
+# # Summarize estimates
+# N_strata_estimates <- N_strata_df_total %>% 
+#   group_by(stratum,year) %>%
+#   summarize(N_q025 = quantile(N,0.025),
+#             N_q500 = quantile(N,0.500),
+#             N_q975 = quantile(N,0.975)
+#   )
+# 
+# N_strata_estimates$year_abs <- year_vec[N_strata_estimates$year]
+# N_strata_estimates$stratum_name <- dimnames(jags_data$N_origin)[[1]][N_strata_estimates$stratum]
+# # save(N_strata_estimates, file = paste0(output_directory,"/R_objects/",focal_season,"_N_strata_estimates.RData"))
+# 
+# # National abundance
+# N_national_estimates_boot <- N_strata_df_total %>% 
+#   group_by(year,mcmc,bootstrap_rep) %>%
+#   
+#   # Sum across all strata
+#   summarize(N = sum(N))
+# 
+# N_national_estimates <- N_national_estimates_boot %>%
+#   group_by(year) %>%                    
+#   
+#   # Summarize across BAM bootstrap replicates
+#   summarize(N_q025 = quantile(N,0.025),
+#             N_q500 = quantile(N,0.500),
+#             N_q975 = quantile(N,0.975))
+# N_national_estimates$year_abs <- year_vec[N_national_estimates$year]
+# # save(N_national_estimates, file = paste0(output_directory,"/R_objects/",focal_season,"_N_national_estimates.RData"))
+# 
+# #-------------------------------------------------------------------
+# # Calculate trends and percent change across specific intervals
+# #-------------------------------------------------------------------
+# national_trend_df <- data.frame()
+# 
+# # 10-year trends and study-wide trends
+# for (year_interval in c(10,length(unique(N_strata_df_total$year))-1)){
+#   for (year in 1:(max(N_national_estimates_boot$year)-1)){
+#     for (bootrep in unique(N_national_estimates_boot$bootstrap_rep)){
+#       
+#       start_year_pchange <- year
+#       end_year_pchange <- year+year_interval
+#       
+#       if (!(end_year_pchange %in% N_national_estimates_boot$year)) next
+#       
+#       N1 <- subset(N_national_estimates_boot,year == start_year_pchange & bootstrap_rep == bootrep)$N
+#       N2 <- subset(N_national_estimates_boot, year == end_year_pchange & bootstrap_rep == bootrep)$N
+#       
+#       percent_change = (N2-N1)/N1 * 100
+#       trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
+#       
+#       tmp <- data.frame(mcmc = 1:length(trend),
+#                         end_year_pchange = end_year_pchange,
+#                         year_interval = year_interval,
+#                         percent_change = percent_change,
+#                         trend = trend)
+#       
+#       national_trend_df <- rbind(national_trend_df, tmp)
+#     } # bootrep
+#     
+#     print(year)
+#   } # Start year
+# } # Year interval
+# 
+# national_trend_df$stratum_name <- "National"
+# national_trend_df$end_year <- year_vec[national_trend_df$end_year_pchange]
+# national_trend_df$start_year <- national_trend_df$end_year - national_trend_df$year_interval
+# 
+# 
+# # Summarize credible intervals across bootstrap replicates
+# national_trend_df_summary <- national_trend_df %>%
+#   group_by(stratum_name,start_year,end_year, year_interval) %>%
+#   summarize(percent_change_mean = mean(percent_change),
+#             percent_change_q025 = quantile(percent_change,0.025),
+#             percent_change_q975 = quantile(percent_change,0.975),
+#             
+#             trend_mean = mean(trend),
+#             trend_q025 = quantile(trend,0.025),
+#             trend_q975 = quantile(trend,0.975),
+#             
+#             prob_increase = mean(percent_change > 0),
+#             prob_30_decline = mean(percent_change <= -30),
+#             prob_50_decline = mean(percent_change <= -50))
+# 
+# 
+# # Stratum-level analysis
+# stratum_trend_df <- data.frame()
+# for (year_interval in c(10,length(unique(N_strata_df_total$year))-1)){
+#   for (year in 1:(max(N_strata_df_total$year)-1)){
+#     for (current_stratum in 1:nstrata){
+#       
+#       start_year_pchange <- year
+#       end_year_pchange <- year+year_interval
+#       
+#       if (!(end_year_pchange %in% N_strata_df_total$year)) next
+#       
+#       N1 <- subset(N_strata_df_total,year == start_year_pchange & bootstrap_rep == N_national_estimates_boot$bootstrap_rep[1] & stratum == current_stratum)$N
+#       N2 <- subset(N_strata_df_total, year == end_year_pchange & bootstrap_rep == N_national_estimates_boot$bootstrap_rep[1] & stratum == current_stratum)$N
+#       
+#       percent_change = (N2-N1)/N1 * 100
+#       trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
+#       
+#       tmp <- data.frame(mcmc = 1:length(r),
+#                         stratum = current_stratum,
+#                         end_year_pchange = end_year_pchange,
+#                         year_interval = year_interval,
+#                         percent_change = percent_change,
+#                         trend = trend)
+#       
+#       stratum_trend_df <- rbind(stratum_trend_df, tmp)
+#       
+#     } # stratum
+#     
+#     print(year)
+#   } # Start year
+# } # Year interval
+# 
+# stratum_trend_df$stratum_name <- dimnames(jags_data$N_origin)[[1]][stratum_trend_df$stratum]
+# stratum_trend_df$end_year <- year_vec[stratum_trend_df$end_year_pchange]
+# stratum_trend_df$start_year <- stratum_trend_df$end_year - stratum_trend_df$year_interval
+# 
+# # Summarize credible intervals across bootstrap replicates
+# stratum_trend_df_summary <- stratum_trend_df %>%
+#   group_by(stratum_name,start_year,end_year, year_interval) %>%
+#   summarize(percent_change_mean = mean(percent_change),
+#             percent_change_q025 = quantile(percent_change,0.025),
+#             percent_change_q975 = quantile(percent_change,0.975),
+#             
+#             trend_mean = mean(trend),
+#             trend_q025 = quantile(trend,0.025),
+#             trend_q975 = quantile(trend,0.975),
+#             
+#             prob_increase = mean(percent_change > 0),
+#             prob_30_decline = mean(percent_change <= -30),
+#             prob_50_decline = mean(percent_change <= -50))
+# 
+# 
+# trend_df_summary <- bind_rows(national_trend_df_summary,stratum_trend_df_summary) %>%
+#   add_column(season = focal_season) %>%
+#   relocate(stratum_name,season)
+# 
+# # Rearrange columns
+# trend_df_summary <- trend_df_summary %>% 
+#   ungroup() %>%
+#   dplyr::select(stratum_name,season,start_year, end_year,
+#                 trend_mean,trend_q025,trend_q975,
+#                 percent_change_mean,percent_change_q025,percent_change_q975,
+#                 prob_increase,prob_30_decline,prob_50_decline)
+# 
+# # SAVE RELEVANT OUTPUT / SUMMARIES IN TABLE FORMAT
+# # write.csv(trend_df_summary,paste0(output_directory,"tables/trend_and_change_estimates.csv"),row.names = FALSE)
+# 
+# # *****************************************************
+# # *****************************************************
+# # PART 3: GENERATE SOME PLOTS OF DATA AND RESULT SUMMARIES
+# # *****************************************************
+# # *****************************************************
+# 
+# # Trajectory over last 10 years
+# N_strata_estimates$stratum_name = factor(N_strata_estimates$stratum_name, levels = c("West","East"))
+# 
+# N_strata_10yr_plot <- ggplot(subset(N_strata_estimates,year_abs %in% ((end_year-10):end_year))) +
+#   geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975, fill = stratum_name), alpha = 0.3)+
+#   geom_line(aes(x = year_abs, y = N_q500, col = stratum_name))+
+#   scale_fill_manual(values = strata_colours, name = "Stratum")+
+#   scale_color_manual(values = strata_colours, name = "Stratum")+
+#   xlab("Year")+
+#   ylab("Abundance")+
+#   facet_grid(.~stratum_name)+
+#   scale_y_continuous(label=comma)+
+#   scale_x_continuous(breaks = seq(2008,2018,length.out = 3))+
+#   theme(
+#     strip.background = element_blank(),
+#     strip.text.x = element_blank(),
+#     panel.spacing = unit(1, "lines"),
+#     legend.position=c(.93,.75))+
+#   coord_cartesian(ylim = c(0,75000000))
+# N_strata_10yr_plot
+# 
+# # png(file = paste0(output_directory,"figures/Trajectory_Strata_10yr.png"), units = "in", width = 6, height = 5, res = 600)
+# # N_strata_10yr_plot
+# # dev.off()
+# 
+# # Trajectory over entire time series
+# N_strata_18yr_plot <- ggplot(N_strata_estimates) +
+#   geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975, fill = stratum_name), alpha = 0.3)+
+#   geom_line(aes(x = year_abs, y = N_q500, col = stratum_name))+
+#   scale_fill_manual(values = strata_colours, name = "Stratum", guide = FALSE)+
+#   scale_color_manual(values = strata_colours, name = "Stratum", guide = FALSE)+
+#   xlab("Year")+
+#   ylab("Abundance")+
+#   facet_grid(stratum_name~.)+
+#   scale_y_continuous(label=comma)+
+#   theme(
+#     strip.background = element_blank(),
+#     strip.text.x = element_blank(),
+#     panel.spacing = unit(1, "lines"),
+#     legend.position=c(.93,.75))+
+#   coord_cartesian(ylim = c(0,75000000))
+# 
+# # png(file = paste0(output_directory,"figures/Trajectory_Strata_18yr.png"), units = "in", width = 6, height = 5, res = 600)
+# # N_strata_18yr_plot
+# # dev.off()
+# 
+# N_national_10yr_plot <- ggplot(subset(N_national_estimates,year_abs %in% ((end_year-10):end_year))) +
+#   geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975), alpha = 0.3)+
+#   geom_line(aes(x = year_abs, y = N_q500))+
+#   xlab("Year")+
+#   ylab("National Abundance")+
+#   ggtitle("National trajectory")+
+#   scale_x_continuous(breaks = seq(2008,2018,length.out = 3))+
+#   scale_y_continuous(label=comma)+
+#   coord_cartesian(ylim = c(0,75000000))
+# 
+# # png(file = paste0(output_directory,"figures/Trajectory_10yr.png"), units = "in", width = 6, height = 5, res = 600)
+# # N_national_10yr_plot
+# # dev.off()
+# 
+# N_national_18yr_plot <- ggplot(N_national_estimates) +
+#   geom_ribbon(aes(x = year_abs, ymin = N_q025, ymax = N_q975), alpha = 0.3)+
+#   geom_line(aes(x = year_abs, y = N_q500))+
+#   xlab("Year")+
+#   ylab("National Abundance")+
+#   ggtitle("National trajectory")+
+#   scale_y_continuous(label=comma)+
+#   coord_cartesian(ylim = c(0,75000000))
+# # 
+# # png(file = paste0(output_directory,"figures/Trajectory_18yr.png"), units = "in", width = 6, height = 5, res = 600)
+# # N_national_18yr_plot
+# # dev.off()
+# 
+# # ---------------------------------------------
+# # Violin plot of posterior trend estimates
+# # ---------------------------------------------
+# 
+# # Individual mcmc samples
+# trend_df = bind_rows(stratum_trend_df,national_trend_df)
+# trend_df$stratum_name = factor(trend_df$stratum_name, levels = c("National","West","East"))
+# 
+# decline_text = subset(trend_df_summary, end_year == 2018 & start_year == 2008)
+# 
+# # 10 year trend
+# trend_violin_10yr = ggplot(subset(trend_df, end_year == 2018 & year_interval == 10), 
+#                            aes(x = stratum_name, 
+#                                y = trend, 
+#                                fill = stratum_name)) +
+#   geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
+#   geom_violin(draw_quantiles = c(0.025,0.5,0.975), 
+#               alpha = 0.7,
+#               col = "gray35", size = 1) +
+#   scale_fill_manual(values = c("gray80",strata_colours), guide = "none")+
+#   geom_text(data = decline_text, aes(x = stratum_name, y = -25, label = 1-round(prob_increase,2)), fontface = "bold")+
+#   xlab("Stratum")+
+#   ylab("Trend\n(% change per year)")+
+#   coord_cartesian(ylim = c(-25,25))+
+#   ggtitle("10 year trend")
+# print(trend_violin_10yr)
+# 
+# png(file = paste0(output_directory,"figures/Trend_Violin_10yr.png"), units = "in", width = 6, height = 5, res = 600)
 # trend_violin_10yr
 # dev.off()
-
-# 18 year trend
-decline_text = subset(trend_df_summary, end_year == 2018 & start_year == 2000)
-trend_violin_18yr = ggplot(subset(trend_df, end_year == 2018 & year_interval == 18), 
-                           aes(x = stratum_name, 
-                               y = trend, 
-                               fill = stratum_name)) +
-  geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
-  geom_violin(draw_quantiles = c(0.025,0.5,0.975), 
-              alpha = 0.7,
-              col = "gray35", size = 1) +
-  scale_fill_manual(values = c("gray80",strata_colours), guide = "none")+
-  geom_text(data = decline_text, aes(x = stratum_name, y = -25, label = 1-round(prob_increase,2)), fontface = "bold")+
-  xlab("Stratum")+
-  ylab("Trend\n(% change per year)")+
-  coord_cartesian(ylim = c(-25,25))+
-  ggtitle("18 year trend")
-print(trend_violin_18yr)
-
-png(file = paste0(output_directory,"figures/Trend_Violin_18yr.png"), units = "in", width = 6, height = 5, res = 600)
-trend_violin_18yr
-dev.off()
-
-# 10 year trend with comparison to BBS
-load("./analysis/2_BBS_analysis/trend_10yr_samples.RData")
-bbs_trend_10yr_samples = trend_10yr_samples
-trend_df_BBS = data.frame(mcmc = 1:length(bbs_trend_10yr_samples),
-                          trend = bbs_trend_10yr_samples,
-                          stratum_name = "BBS")
-
-trend_df_comparison = bind_rows(subset(trend_df,stratum_name == "National" & end_year == 2018 & year_interval == 10),trend_df_BBS)
-trend_df_comparison$stratum_name[which(trend_df_comparison$stratum_name == "National")] = "Migration"
-
-# Label for plot
-text = trend_df_comparison %>%
-  group_by(stratum_name) %>%
-  summarize(prob_decline = round(mean(trend<0),2))
-
-trend_comparison_plot = ggplot(trend_df_comparison,
-                               aes(x = stratum_name, 
-                                   y = trend)) +
-  geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
-  geom_violin(draw_quantiles = c(0.025,0.5,0.975), alpha = 0.7,
-              fill = "gray80",
-              col = "gray35", size = 1) +
-  geom_text(data = text, aes(x = stratum_name, y = -25, label = prob_decline), fontface = "bold")+
-  xlab("")+
-  ylab("Trend\n(% change per year)")+
-  coord_cartesian(ylim = c(-25,25))+
-  ggtitle(focal_season)
-trend_comparison_plot
-
-png(file = paste0(output_directory,"figures/National_Trend_Comparison_BBS.png"), units = "in", width = 6, height = 5, res = 600)
-trend_comparison_plot 
-dev.off()
+# 
+# # png(file = paste0(figure_directory,"/trend_violin_10yr.png"), units = "in", width = 6, height = 3, res = 1000)
+# # trend_violin_10yr
+# # dev.off()
+# 
+# # 18 year trend
+# decline_text = subset(trend_df_summary, end_year == 2018 & start_year == 2000)
+# trend_violin_18yr = ggplot(subset(trend_df, end_year == 2018 & year_interval == 18), 
+#                            aes(x = stratum_name, 
+#                                y = trend, 
+#                                fill = stratum_name)) +
+#   geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
+#   geom_violin(draw_quantiles = c(0.025,0.5,0.975), 
+#               alpha = 0.7,
+#               col = "gray35", size = 1) +
+#   scale_fill_manual(values = c("gray80",strata_colours), guide = "none")+
+#   geom_text(data = decline_text, aes(x = stratum_name, y = -25, label = 1-round(prob_increase,2)), fontface = "bold")+
+#   xlab("Stratum")+
+#   ylab("Trend\n(% change per year)")+
+#   coord_cartesian(ylim = c(-25,25))+
+#   ggtitle("18 year trend")
+# print(trend_violin_18yr)
+# 
+# png(file = paste0(output_directory,"figures/Trend_Violin_18yr.png"), units = "in", width = 6, height = 5, res = 600)
+# trend_violin_18yr
+# dev.off()
+# 
+# # 10 year trend with comparison to BBS
+# load("./analysis/2_BBS_analysis/trend_10yr_samples.RData")
+# bbs_trend_10yr_samples = trend_10yr_samples
+# trend_df_BBS = data.frame(mcmc = 1:length(bbs_trend_10yr_samples),
+#                           trend = bbs_trend_10yr_samples,
+#                           stratum_name = "BBS")
+# 
+# trend_df_comparison = bind_rows(subset(trend_df,stratum_name == "National" & end_year == 2018 & year_interval == 10),trend_df_BBS)
+# trend_df_comparison$stratum_name[which(trend_df_comparison$stratum_name == "National")] = "Migration"
+# 
+# # Label for plot
+# text = trend_df_comparison %>%
+#   group_by(stratum_name) %>%
+#   summarize(prob_decline = round(mean(trend<0),2))
+# 
+# trend_comparison_plot = ggplot(trend_df_comparison,
+#                                aes(x = stratum_name, 
+#                                    y = trend)) +
+#   geom_hline(yintercept = 0, col = "gray80", size = 1.5)+
+#   geom_violin(draw_quantiles = c(0.025,0.5,0.975), alpha = 0.7,
+#               fill = "gray80",
+#               col = "gray35", size = 1) +
+#   geom_text(data = text, aes(x = stratum_name, y = -25, label = prob_decline), fontface = "bold")+
+#   xlab("")+
+#   ylab("Trend\n(% change per year)")+
+#   coord_cartesian(ylim = c(-25,25))+
+#   ggtitle(focal_season)
+# trend_comparison_plot
+# 
+# png(file = paste0(output_directory,"figures/National_Trend_Comparison_BBS.png"), units = "in", width = 6, height = 5, res = 600)
+# trend_comparison_plot 
+# dev.off()

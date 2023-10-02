@@ -6,44 +6,20 @@
   # *********************************************************
 
   #---------------------------------------------
-  # Model for population dynamics in each region
-  #---------------------------------------------
-  
-  tau_proc <- pow(sigma_proc,-2)
-    
-  for (j in 1:nstrata){
-    
-    # Work forwards from baseline year
-    for (y in 1:nyear){
-
-      logX[j,y] ~ dnorm( trend[j] * (y-1) , tau_proc)
-      X[j,y] <- exp(logX[j,y])
-
-    }
-  
-  } # j
-  
-  #---------------------------------------------
   # Model for breeding origins of migrants arriving at each station
   #---------------------------------------------
-  
-  tau_stationyear <- pow(sigma_stationyear,-2)
 
   for (s in 1:nstation){
-
-    for (j in 1:nstrata){
-      
-      log_rho_mu[j,s] <- log(rho_mu[j,s])
-
-      for (y in 1:nyear){
-
-	      rho[j,s,y] ~ dlnorm(log_rho_mu[j,s] - 1/(2*tau_stationyear),tau_stationyear)
-        M[j,s,y] <- X[j,y] * rho[j,s,y] * rho.fix[j,s]
-
+    for (y in 1:nyear){
+      for (j in 1:nstrata){
+        M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s]
       }
     }
+    
   }
   
+  tau_rho <- pow(sigma_rho,-2)
+
   for (s in 1:nstation){
     for (y in 1:nyear){
       
@@ -58,6 +34,8 @@
       # Multinomial likelihood for observed breeding origins in sample of birds
       N_origin[1:nstrata,s,y] ~ dmulti(p[1:nstrata,s,y],N_station_sampled[s,y])
 
+      T_star[s,y] ~ dlnorm(log(T[s,y]) - 1/(2*tau_rho),tau_rho)
+      
     } # y
   } # s 
   
@@ -65,33 +43,34 @@
   # Within-season model for migration counts
   #---------------------------------------------
 
+  # Daily overdispersion in counts at each site (e.g., due to daily weather)
+  tau_stationday <- pow(sigma_stationday,-2)
   migration_phenology_tau <- pow(migration_phenology_sd,-2)
-  
-  for (s in 1:nstation){
-    migration_phenology_mean[s] ~ dunif(1,360)
-    
-  }
-  
-  # Site-level fixed effects (for LPBO that contains multiple sub-stations)
-  for (k in 1:nsite){
-
-    # Daily overdispersion in counts at each site (e.g., due to daily weather)
-    tau_stationday[k] <- pow(sigma_stationday[k],-2)
-  }
   
   for (i in 1:nobs){
     
-    mu[i] <- log(f[i]) + log(T[station[i],year[i]]) + log(net_hrs[i]) + site_effect[site[i]]*dummy_site[i]
+    mu[i] <- log(f[i]) + log(T_star[station[i],year[i]]) + log(net_hrs[i]) + site_effect[site[i]]*dummy_site[i]
     expected_count[i] <- exp(mu[i])
 
     # Likelihood for counts
     f[i] <-  exp(logdensity.norm(day[i], migration_phenology_mean[station[i]], migration_phenology_tau))
     
     # Add daily overdispersion
-    log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday[site[i]]), tau_stationday[site[i]]) 
+    log_lambda[i] ~ dnorm(mu[i] - 1/(2*tau_stationday), tau_stationday) 
     count[i] ~ dpois(exp(log_lambda[i]))
     
   }
   
+  #---------------------------------------------
+  # Regional composition of each annual index
+  #---------------------------------------------
+  
+  for (y in 1:nyear){
+    for (s in 1:nstation){
+      for (j in 1:nstrata){
+        station_composition[j,s,y] <- T_star[s,y] * p[j,s,y]
+      }
+    }
+  }
 }
     
