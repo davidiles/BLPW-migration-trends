@@ -89,7 +89,7 @@ load(paste0(output_directory,"analysis_",focal_season,".RData"))
 # ***************************************************************
 
 # The jags script to fit the model
-sink("./analysis/1_scripts/migration_model_2.jags")
+sink("./analysis/1_scripts/migration_model.jags")
 cat("
     model {
 
@@ -318,7 +318,7 @@ sink()
 
 sim_results <- data.frame()
 
-if (file.exists("analysis/2_output/simulation/sim_results_2.RData")) load(file = "analysis/2_output/simulation/sim_results_2.RData")
+if (file.exists("analysis/2_output/simulation/sim_results.Rdata")) load(file = "analysis/2_output/simulation/sim_results.Rdata")
 
 for (simulation_rep in rev(1:100)){
   
@@ -329,7 +329,7 @@ for (simulation_rep in rev(1:100)){
     if (nrow(subset(sim_results, Simulation_Rep == simulation_rep))==6) next
   }
   
-  if (file.exists("analysis/2_output/simulation/sim_results_2.RData")) load(file = "analysis/2_output/simulation/sim_results_2.RData")
+  if (file.exists("analysis/2_output/simulation/sim_results.Rdata")) load(file = "analysis/2_output/simulation/sim_results.Rdata")
   
   # ------------------
   # Simulate trajectories for each of two strata
@@ -454,7 +454,7 @@ for (simulation_rep in rev(1:100)){
     ni <- nb + nsamp*nt
     
     out_refit <- jags(data = jags_data_refit,
-                      model.file = "analysis/1_scripts/migration_model_2.jags",
+                      model.file = "analysis/1_scripts/migration_model.jags",
                       parameters.to.save = parameters.to.save,
                       inits = inits,
                       n.chains = 3,
@@ -471,7 +471,7 @@ for (simulation_rep in rev(1:100)){
     # Estimated trend in each stratum
     trends_estimated <- 100*((out_refit$sims.list$X[,,19]/out_refit$sims.list$X[,,1])^(1/(19-1))-1)
     
-    if (file.exists("analysis/2_output/simulation/sim_results_2.RData")) load(file = "analysis/2_output/simulation/sim_results_2.RData")
+    if (file.exists("analysis/2_output/simulation/sim_results.Rdata")) load(file = "analysis/2_output/simulation/sim_results.Rdata")
     
     # Summarize information for this run
     sim_results <- rbind(sim_results,data.frame(Simulation_Rep = simulation_rep,
@@ -492,7 +492,7 @@ for (simulation_rep in rev(1:100)){
                                                 trend_est_q975 = quantile(trends_estimated[,2],0.975),
                                                 max_Rhat = max_Rhat))
     
-    save(sim_results, file = "analysis/2_output/simulation/sim_results_2.RData")
+    save(sim_results, file = "analysis/2_output/simulation/sim_results.Rdata")
     
   }
   
