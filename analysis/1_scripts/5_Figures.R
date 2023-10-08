@@ -75,14 +75,14 @@ path <- get_species_path("Blackpoll Warbler")
 # *******************************************************************
 
 # Spring
-load("analysis/2_output/Spring/analysis_Spring_gamma.RData")
+load("analysis/2_output/Spring/analysis_Spring.RData")
 count_df_Spring <- count_df
 station_data_summarized_sf_Spring <- station_data_summarized_sf
 jags_data_Spring <- jags_data
 out_Spring <- out
 
 # Fall
-load("analysis/2_output/Fall/analysis_Fall_gamma.RData")
+load("analysis/2_output/Fall/analysis_Fall.RData")
 count_df_Fall <- count_df
 station_data_summarized_sf_Fall <- station_data_summarized_sf
 jags_data_Fall <- jags_data
