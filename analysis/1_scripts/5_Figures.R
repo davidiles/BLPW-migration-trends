@@ -303,19 +303,19 @@ for (j in 1:jags_data_Spring$nstrata){
     log_change <- log(X_Spring[,j,t]/X_Spring[,j,1])
     
     regional_change_since_2000 <- rbind(regional_change_since_2000,
-                               data.frame(stratum_number = j,
-                                          year_number = t,
-                                          Source = "Pre-breeding migration",
-                                          
-                                          log_change_q025 = quantile(log_change,0.025),
-                                          log_change_q50 = quantile(log_change,0.5),
-                                          log_change_q975 = quantile(log_change,0.975),
-                                          
-                                          prob_large_decrease = mean(log_change<log(0.5)),
-                                          prob_large_increase = mean(log_change>log(2)),
-                                          
-                                          prob_decline = mean(log_change<0)
-                               ))
+                                        data.frame(stratum_number = j,
+                                                   year_number = t,
+                                                   Source = "Pre-breeding migration",
+                                                   
+                                                   log_change_q025 = quantile(log_change,0.025),
+                                                   log_change_q50 = quantile(log_change,0.5),
+                                                   log_change_q975 = quantile(log_change,0.975),
+                                                   
+                                                   prob_large_decrease = mean(log_change<log(0.5)),
+                                                   prob_large_increase = mean(log_change>log(2)),
+                                                   
+                                                   prob_decline = mean(log_change<0)
+                                        ))
     
     # ------------
     # Fall estimates
@@ -324,19 +324,19 @@ for (j in 1:jags_data_Spring$nstrata){
     log_change <- log(X_Fall[,j,t]/X_Fall[,j,1])
     
     regional_change_since_2000 <- rbind(regional_change_since_2000,
-                               data.frame(stratum_number = j,
-                                          year_number = t,
-                                          Source = "Post-breeding migration",
-                                          
-                                          log_change_q025 = quantile(log_change,0.025),
-                                          log_change_q50 = quantile(log_change,0.5),
-                                          log_change_q975 = quantile(log_change,0.975),
-                                          
-                                          prob_large_decrease = mean(log_change<log(0.5)),
-                                          prob_large_increase = mean(log_change>log(2)),
-                                          
-                                          prob_decline = mean(log_change<0)
-                               ))
+                                        data.frame(stratum_number = j,
+                                                   year_number = t,
+                                                   Source = "Post-breeding migration",
+                                                   
+                                                   log_change_q025 = quantile(log_change,0.025),
+                                                   log_change_q50 = quantile(log_change,0.5),
+                                                   log_change_q975 = quantile(log_change,0.975),
+                                                   
+                                                   prob_large_decrease = mean(log_change<log(0.5)),
+                                                   prob_large_increase = mean(log_change>log(2)),
+                                                   
+                                                   prob_decline = mean(log_change<0)
+                                        ))
     
     # ------------
     # BBS estimates
@@ -348,19 +348,19 @@ for (j in 1:jags_data_Spring$nstrata){
     log_change <- log(X[,t]/X[,1])
     
     regional_change_since_2000 <- rbind(regional_change_since_2000,
-                               data.frame(stratum_number = j,
-                                          year_number = t,
-                                          Source = "Breeding Bird Survey",
-                                          
-                                          log_change_q025 = quantile(log_change,0.025),
-                                          log_change_q50 = quantile(log_change,0.5),
-                                          log_change_q975 = quantile(log_change,0.975),
-                                          
-                                          prob_large_decrease = mean(log_change<log(0.5)),
-                                          prob_large_increase = mean(log_change>log(2)),
-                                          
-                                          prob_decline = mean(log_change<0)
-                               ))
+                                        data.frame(stratum_number = j,
+                                                   year_number = t,
+                                                   Source = "Breeding Bird Survey",
+                                                   
+                                                   log_change_q025 = quantile(log_change,0.025),
+                                                   log_change_q50 = quantile(log_change,0.5),
+                                                   log_change_q975 = quantile(log_change,0.975),
+                                                   
+                                                   prob_large_decrease = mean(log_change<log(0.5)),
+                                                   prob_large_increase = mean(log_change>log(2)),
+                                                   
+                                                   prob_decline = mean(log_change<0)
+                                        ))
     
     
   }
@@ -392,6 +392,7 @@ text_labels <- expand.grid(Year = 2000,
                            Stratum = factor(c("West","East"),levels = c("West","East")),
                            Source = factor(c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey"),levels = c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey")))
 text_labels$panel <- c("(a)","(b)","(c)","(d)","(e)","(f)")
+
 Figure2 <- ggplot()+
   geom_ribbon(data = regional_change_since_2000,
               aes(x = Year, 
@@ -430,8 +431,8 @@ dev.off()
 #------------------------------------------------
 
 BBS_indices <- generate_indices(jags_mod = out_BBS,
-                            jags_data = jags_data_BBS,
-                            regions = "continental")
+                                jags_data = jags_data_BBS,
+                                regions = "continental")
 
 continental_change_since_2000 <- data.frame()
 
@@ -444,17 +445,17 @@ for (t in 1:jags_data_Spring$nyear){
   log_change <- log(XSum_Spring[,t]/XSum_Spring[,1])
   
   continental_change_since_2000 <- rbind(continental_change_since_2000,
-                             data.frame(year_number = t,
-                                        Source = "Pre-breeding migration",
-                                        
-                                        log_change_q025 = quantile(log_change,0.025),
-                                        log_change_q50 = quantile(log_change,0.5),
-                                        log_change_q975 = quantile(log_change,0.975),
-                                        prob_large_decrease = mean(log_change<log(0.5)),
-                                        prob_large_increase = mean(log_change>log(2)),
-                                        
-                                        prob_decline = mean(log_change<0)
-                             ))
+                                         data.frame(year_number = t,
+                                                    Source = "Pre-breeding migration",
+                                                    
+                                                    log_change_q025 = quantile(log_change,0.025),
+                                                    log_change_q50 = quantile(log_change,0.5),
+                                                    log_change_q975 = quantile(log_change,0.975),
+                                                    prob_large_decrease = mean(log_change<log(0.5)),
+                                                    prob_large_increase = mean(log_change>log(2)),
+                                                    
+                                                    prob_decline = mean(log_change<0)
+                                         ))
   
   # ------------
   # Fall estimates
@@ -463,17 +464,17 @@ for (t in 1:jags_data_Spring$nyear){
   log_change <- log(XSum_Fall[,t]/XSum_Fall[,1])
   
   continental_change_since_2000 <- rbind(continental_change_since_2000,
-                             data.frame(year_number = t,
-                                        Source = "Post-breeding migration",
-                                        
-                                        log_change_q025 = quantile(log_change,0.025),
-                                        log_change_q50 = quantile(log_change,0.5),
-                                        log_change_q975 = quantile(log_change,0.975),
-                                        prob_large_decrease = mean(log_change<log(0.5)),
-                                        prob_large_increase = mean(log_change>log(2)),
-                                        
-                                        prob_decline = mean(log_change<0)
-                             ))
+                                         data.frame(year_number = t,
+                                                    Source = "Post-breeding migration",
+                                                    
+                                                    log_change_q025 = quantile(log_change,0.025),
+                                                    log_change_q50 = quantile(log_change,0.5),
+                                                    log_change_q975 = quantile(log_change,0.975),
+                                                    prob_large_decrease = mean(log_change<log(0.5)),
+                                                    prob_large_increase = mean(log_change>log(2)),
+                                                    
+                                                    prob_decline = mean(log_change<0)
+                                         ))
   
   # ------------
   # BBS estimates
@@ -482,17 +483,17 @@ for (t in 1:jags_data_Spring$nyear){
   log_change <- log(BBS_indices$samples$continental_Continental[,t]/BBS_indices$samples$continental_Continental[,1])
   
   continental_change_since_2000 <- rbind(continental_change_since_2000,
-                             data.frame(year_number = t,
-                                        Source = "Breeding Bird Survey",
-                                        
-                                        log_change_q025 = quantile(log_change,0.025),
-                                        log_change_q50 = quantile(log_change,0.5),
-                                        log_change_q975 = quantile(log_change,0.975),
-                                        prob_large_decrease = mean(log_change<log(0.5)),
-                                        prob_large_increase = mean(log_change>log(2)),
-                                        
-                                        prob_decline = mean(log_change<0)
-                             ))
+                                         data.frame(year_number = t,
+                                                    Source = "Breeding Bird Survey",
+                                                    
+                                                    log_change_q025 = quantile(log_change,0.025),
+                                                    log_change_q50 = quantile(log_change,0.5),
+                                                    log_change_q975 = quantile(log_change,0.975),
+                                                    prob_large_decrease = mean(log_change<log(0.5)),
+                                                    prob_large_increase = mean(log_change>log(2)),
+                                                    
+                                                    prob_decline = mean(log_change<0)
+                                         ))
   
   
 }
@@ -513,13 +514,23 @@ y_axis_labels <- y_axis_breaks %>% round() %>% paste0()
 y_axis_labels[which(y_axis_breaks>0)] <- paste0("+",y_axis_labels[which(y_axis_breaks>0)])
 y_axis_labels <- paste0(y_axis_labels," %")
 
-Figure3 <- ggplot(continental_change_since_2000,
-                  aes(x = Year, 
-                      y = log_change_q50, 
-                      ymin = log_change_q025, 
-                      ymax = log_change_q975))+
-  geom_ribbon(alpha = 0.2, col = "transparent")+
-  geom_line(linewidth = 1)+
+text_labels <- expand.grid(Year = 2000,
+                           log_y = max(log_breaks),
+                           Source = factor(c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey"),levels = c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey")))
+text_labels$panel <- c("(a)","(b)","(c)")
+
+Figure3 <- ggplot()+
+  geom_ribbon(data = continental_change_since_2000,
+              aes(x = Year, 
+                  y = log_change_q50, 
+                  ymin = log_change_q025, 
+                  ymax = log_change_q975),alpha = 0.2, col = "transparent")+
+  geom_line(data = continental_change_since_2000,
+            aes(x = Year, 
+                y = log_change_q50, 
+                ymin = log_change_q025, 
+                ymax = log_change_q975),linewidth = 1)+
+  geom_text(data = text_labels, aes(x = Year, y = log_y, label = panel),hjust=0, size = 6,vjust=1)+
   scale_y_continuous(breaks = log_breaks, labels = y_axis_labels)+
   coord_cartesian(ylim=range(log_breaks))+
   facet_grid(.~Source)+
@@ -537,51 +548,39 @@ dev.off()
 #-------------------------------------------------------------------
 # Summarize change/trend estimates from each program, for each region
 #-------------------------------------------------------------------
-# 
-# trend_fn <- function(N2,N1,year_interval){
-#   percent_change = (N2-N1)/N1 * 100
-#   trend <- 100*((N2/N1)^(1/year_interval)-1) # Equation from Smith et al. 2014
-#   return(trend)
-# }
-# 
-# trend_df <- data.frame()
-# for (s in 1:jags_data$nstrata){
-#   for (start_year in 1:jags_data$nyear){
-#     for (end_year in 1:jags_data$nyear){
-#       if (end_year <= start_year) next
-# 
-#       trend_est <- trend_fn(N2 = out$sims.list$X[,s,end_year], N1 = out$sims.list$X[,s,start_year], year_interval = end_year - start_year)
-# 
-#       trend_df <- rbind(trend_df, data.frame(stratum_number = s,
-#                                              start_year = start_year,
-#                                              end_year = end_year,
-#                                              trend_est_q50 = quantile(trend_est,0.5),
-#                                              trend_est_q025 = quantile(trend_est,0.025),
-#                                              trend_est_q975 = quantile(trend_est,0.975),
-#                                              prob_decline = round(mean(trend_est<0),2)))
-#     }
-#   }
-# 
-# }
-# trend_df <- trend_df %>% arrange(start_year)
-# trend_df$start_year_abs <- year_vec[trend_df$start_year]
-# trend_df$end_year_abs <- year_vec[trend_df$end_year]
-# trend_df$Stratum <- c("East","West")[trend_df$stratum_number]
-# 
-# 
-# trend_df$'Trend Period' <- paste0(trend_df$start_year_abs," to ", trend_df$end_year_abs)
-# trend_df$'Trend Length (Yrs)' <- trend_df$end_year_abs - trend_df$start_year_abs
-# trend_df$'Trend Estimate' <- paste0(round(trend_df$trend_est_q50,1)," (",round(trend_df$trend_est_q025,1)," to ",round(trend_df$trend_est_q975,1),")")
-# trend_df$'P(Decline)' <- trend_df$prob_decline
-# trend_df$'Width of 95% CRI' <- round(trend_df$trend_est_q975 - trend_df$trend_est_q025,2)
-# 
-# trend_summary <- trend_df %>%
-#   subset(end_year_abs == max(trend_df$end_year_abs) & trend_df$'Trend Length' %in% c(10,max(trend_df$'Trend Length'))) %>%
-#   dplyr::select(Stratum,'Trend Period','Trend Length (Yrs)',"Trend Estimate",'Width of 95% CRI','P(Decline)') %>%
-#   arrange('Trend Length (Yrs)')
-# trend_summary
-# 
-# write.csv(trend_summary, file = paste0(output_directory,"/tables/",focal_season,"_trend_summary.csv"),row.names = FALSE)
+
+# Combine regional and continental tables into a single dataframe
+regional_change_since_2000 %>% colnames()
+Trend_Summary <- continental_change_since_2000 %>% 
+  mutate(Stratum = "Continental") %>%
+  bind_rows(regional_change_since_2000) %>%
+  subset(Year == 2018) %>%
+  mutate(Stratum = factor(Stratum, levels = c("West","East","Continental")),
+         '% change since 2000' = paste0(round(100*(exp(log_change_q50)-1),1),
+                                        " (", round(100*(exp(log_change_q025)-1),1),
+                                        " to ",round(100*(exp(log_change_q975)-1),1),
+                                        ")"),
+         
+         'Trend between 2000 and 2018' = paste0(round(100*(exp(log_change_q50)^(1/(2018-2000))-1),1),
+                                                " (", round(100*(exp(log_change_q025)^(1/(2018-2000))-1),1),
+                                                " to ",round(100*(exp(log_change_q975)^(1/(2018-2000))-1),1),
+                                                ")"),
+         'Prob(Decline)' = round(prob_decline,2),
+         'Prob(>50% Decline)' = round(prob_large_decrease,2),
+         'Prob(>100% Increase)' = round(prob_large_increase,2)
+         
+  ) %>%
+  dplyr::select(Stratum, 
+                Source, 
+                '% change since 2000',
+                'Trend between 2000 and 2018',
+                'Prob(Decline)',
+                'Prob(>50% Decline)',
+                'Prob(>100% Increase)') %>%
+  arrange(Stratum,Source)
+Trend_Summary
+
+write.csv(Trend_Summary, file = "analysis/2_output/Figures_Main_Text/Table2_Trend_Summary.csv",row.names = FALSE)
 
 
 #------------------------------------------------
