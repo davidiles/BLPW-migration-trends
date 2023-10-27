@@ -550,7 +550,6 @@ dev.off()
 #-------------------------------------------------------------------
 
 # Combine regional and continental tables into a single dataframe
-regional_change_since_2000 %>% colnames()
 Trend_Summary <- continental_change_since_2000 %>% 
   mutate(Stratum = "Continental") %>%
   bind_rows(regional_change_since_2000) %>%
