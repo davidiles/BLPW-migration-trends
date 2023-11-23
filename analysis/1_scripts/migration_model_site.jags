@@ -1,0 +1,56 @@
+
+    model {
+
+  #---------------------------------------------
+  # Population process
+  #---------------------------------------------
+  
+  for (s in 1:nsite){
+  
+    # Model dynamics through time
+    process_sd[s] ~ dunif(0,2)
+    intercept[s] ~ dnorm(0,0.1)
+    slope[s] ~ dnorm(0,0.1)
+    for (t in 1:nyear){
+      logN[s,t] ~ dnorm(intercept[s] + slope[s]*(t-1),pow(process_sd[s],-2) )
+      N[s,t] <- exp(logN[s,t])
+    }
+    
+    #---------------------------------------------
+    # Parameters for within-season dynamics at each site
+    #---------------------------------------------
+  
+    # Migration phenology at each site
+    migration_phenology_mean[s] ~ dunif(1,360) # Date of peak migration
+    migration_phenology_sd[s] ~ dunif(0,20)    # Width of migration period
+    
+    # Daily overdispersion in counts at each site (e.g., due to daily weather)
+    siteday_sd[s] ~ dunif(0,2)
+
+    
+  }
+  
+  for (i in 1:nobs){
+
+    mu[i] <- log(f[i]) + log(N[site[i],year[i]]) + log(net_hrs[i])
+    expected_count[i] <- exp(mu[i])
+
+    # Likelihood for counts
+    f[i] <-  exp(logdensity.norm(day[i], migration_phenology_mean[site[i]], pow(migration_phenology_sd[site[i]],-2)    ))
+
+    # Add daily overdispersion
+    log_lambda[i] ~ dnorm(mu[i], pow(siteday_sd[site[i]],-2))
+    count[i] ~ dpois(exp(mu[i]))
+    
+  }
+
+  # *********************************************************
+  # Derived quantities
+  # *********************************************************
+
+  for (t in 1:nyear){
+    Nsum[t] <- sum(N[1:nsite,t])
+  }
+
+}
+    
