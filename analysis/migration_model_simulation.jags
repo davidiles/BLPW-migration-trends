@@ -1,0 +1,67 @@
+
+    model {
+  
+  #---------------------------------------------
+  # Model for breeding origins of migrants arriving at each station
+  #---------------------------------------------
+  
+  tau_rho <- pow(sigma_rho,-2)
+  
+  # Model fluctuations in numbers of migrants from each stratum in each year
+  for (s in 1:nstation){
+
+    for (j in 1:nstrata){
+    
+      for (y in 1:nyear){
+         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s] 
+         
+      }
+      
+    }
+
+  }
+
+  # Model for known origins of migrating birds
+  for (s in 1:nstation){
+  
+    for (y in 1:nyear){
+
+      # Total number of migrants in year [y] at station [s]
+      sumM[s,y] <- sum(M[1:nstrata,s,y])
+      T[s,y] ~ dlnorm(log(sumM[s,y]),tau_rho)
+      
+      # Proportion of birds from each stratum
+      for (j in 1:nstrata){
+        p[j,s,y] <- M[j,s,y]/sumM[s,y]
+      }
+
+      # Multinomial likelihood for observed breeding origins in sample of birds
+      N_origin[1:nstrata,s,y] ~ dmulti(p[1:nstrata,s,y],N_station_sampled[s,y])
+
+    } # y
+  } # s
+
+  # ---------------------------------------------
+  # Model counts of migrants arriving at each station, within each season
+  # ---------------------------------------------
+
+  # Daily overdispersion in counts at each site (e.g., due to daily weather, stopover behavior, etc.)
+  for (s in 1:nstation){
+    migration_phenology_tau[s] <- pow(migration_phenology_sd[s],-2)
+    tau_stationday[s] <- pow(sigma_stationday[s],-2)
+  }
+
+  for (i in 1:nobs){
+
+    # Distribute migrants throughout the season
+    f[i] <-  exp(logdensity.norm(day[i], migration_phenology_mean[station[i]], migration_phenology_tau[station[i]]))
+    mu[i] <- log(f[i]) + log(T[station[i],year[i]])
+    
+    # Add daily overdispersion
+    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday[station[i]])
+    count[i] ~ dpois(exp(log_lambda[i]))
+
+  }
+  
+}
+    
