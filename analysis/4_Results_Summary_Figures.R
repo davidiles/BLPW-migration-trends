@@ -307,13 +307,19 @@ analysis_summary <- all_indices %>%
             prob_positive = round(mean(trend > 0),2)
   )
 
+# -----------------------
+# Output a table
+# -----------------------
+
 # Summary in final year (represents overall trend from 1998 to 2008)
+Summary_Table <- subset(analysis_summary, Year == 2018) %>%
+  group_by(Stratum,Source) %>%
+  summarize(`20 year trend` = paste0(trend_q500,"(",trend_q025," to ",trend_q975,")"),
+            `Prob trend is positive` = prob_positive,
+            `% change since 1998` = paste0(percent_change_q500,"(",percent_change_q025," to ",percent_change_q975,")"))
 
-summary_2018 <- subset(analysis_summary, Year == 2018) %>%
-  dplyr::select(-log_change_q025,-log_change_q500,-log_change_q975) %>%
-  as.data.frame()
 
-summary_2018
+write.csv(Summary_Table,file = paste0("1_output/Results_MainText/Summary_Table_",source_of_estimate,".csv"), row.names = FALSE)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Plot

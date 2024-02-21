@@ -750,7 +750,7 @@ plot_obs_vs_expected <- ggplot(data = expected_vs_observed)+
   scale_shape_manual(values=c(19,4), name = "", guide = "none")+
   xlab("Year")+
   ylab("Total Seasonal Count")+
-  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPre-breeding migration")
+  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPost-breeding migration")
 plot_obs_vs_expected
 
 png(file = paste0(output_directory,"figures/Appendix_GOF_mig_counts_at_each_station.png"), units = "in", width = 8, height = 6, res = 600)
@@ -791,7 +791,7 @@ BPval_plot <- ggplot(data = Bayesian_pvals,
   geom_point() +
   geom_hline(yintercept = c(0.2,0.8), col = "red", linewidth = 0.5,linetype = 2)+
   coord_cartesian(ylim=c(0,1))+
-  ggtitle("Pre-breeding Migration\n\nPosterior predictive checks\n\n(Proportion of observed datasets with\nlarger X2-statistic than simulated datasets)")+
+  ggtitle("Post-breeding Migration\n\nPosterior predictive checks\n\n(Proportion of observed datasets with\nlarger X2-statistic than simulated datasets)")+
   xlab("Year")+
   ylab("Bayesian p-value")+
   facet_wrap(station~.)+
@@ -812,7 +812,7 @@ daily_count_plot <- ggplot(count_df)+
   ylab("log(count / net hour)")+
   xlab("Day of the year")+
   facet_grid(station~year_abs, scales = "free_y")+
-  ggtitle("Pre-breeding migration")
+  ggtitle("Post-breeding migration")
 
 png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 20, height = 12, res = 600)
 daily_count_plot
@@ -844,7 +844,7 @@ if (source_of_estimate == "eBird") relabund_year_number <- which(year_vec == 201
 if (source_of_estimate == "BAM") relabund_year_number <- which(year_vec == 2011)
 
 # ---------------------------------
-# Pre-breeding migration
+# Post-breeding migration
 # ---------------------------------
 
 # ~~~~~~~~~~
