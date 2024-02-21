@@ -132,10 +132,11 @@ cat("
 sink()
 
 sim_results <- data.frame()
-sim_file <- "1_output/simulation/sim_results_linear.Rdata"
+sim_file <- "1_output/simulation/sim_results.Rdata"
 if (file.exists(sim_file)) load(file = sim_file)
 
-for (simulation_rep in rev(1:250)){
+# 181 onwards
+for (simulation_rep in (1:250)){
   
   print(simulation_rep)
   
@@ -283,7 +284,7 @@ for (simulation_rep in rev(1:250)){
   ni <- nb + nsamp*nt
   
   out_refit <- jags(data = jags_data_refit,
-                    model.file = "migration_model_station_linear2.jags",
+                    model.file = "migration_model.jags",
                     parameters.to.save = parameters.to.save,
                     inits = inits,
                     n.chains = 3,

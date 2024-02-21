@@ -188,7 +188,7 @@ dev.off()
 
 relabund <- read.csv("1_output/Results_MainText/relabund_eBird_BAM.csv")
 
-source_of_estimate <- "eBird"
+source_of_estimate <- "BAM"
 relabund <- subset(relabund, Source == source_of_estimate)
 relabund$Sum <- relabund$Sum/relabund$Sum[1] # West stratum will have relative abundance of 1
 
@@ -292,17 +292,17 @@ all_indices <- all_indices %>%
 
 analysis_summary <- all_indices %>%
   group_by(Year,Stratum,Source) %>%
-  summarize(log_change_q025 = quantile(log_change,0.025),
+  summarize(log_change_q025 = quantile(log_change,0.025) ,
             log_change_q500 = quantile(log_change,0.500),
             log_change_q975 = quantile(log_change,0.975),
             
-            percent_change_q025 = quantile(percent_change,0.025),
-            percent_change_q500 = quantile(percent_change,0.500),
-            percent_change_q975 = quantile(percent_change,0.975),
+            percent_change_q025 = quantile(percent_change,0.025) %>% round(),
+            percent_change_q500 = quantile(percent_change,0.500) %>% round(),
+            percent_change_q975 = quantile(percent_change,0.975) %>% round(),
             
-            trend_q025 = quantile(trend,0.025),
-            trend_q500 = quantile(trend,0.500),
-            trend_q975 = quantile(trend,0.975),
+            trend_q025 = quantile(trend,0.025) %>% round(1),
+            trend_q500 = quantile(trend,0.500) %>% round(1),
+            trend_q975 = quantile(trend,0.975) %>% round(1),
             
             prob_positive = round(mean(trend > 0),2)
   )

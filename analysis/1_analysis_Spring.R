@@ -394,22 +394,22 @@ dimnames(N_origin)[[3]] <- year_vec
 # Loop through isotope assignments, and assign them to all stations within 100 km
 
 for (i in 1:nrow(assignments_sf)){
-
+  
   # Determine nearest station
   dists <- st_distance(assignments_sf[i,],station_data_summarized_sf) %>% as.numeric()
   if (min(dists) >= 100000) next
-
+  
   inrange <- station_data_summarized_sf[which(dists < 100000),]
-
+  
   assignment_year <- assignments_sf$year[i]
-
+  
   for (station in inrange$station){
     if (sum(is.na(N_origin[,station,as.character(assignment_year)]))>0) N_origin[1:(dim(N_origin)[1]),station,as.character(assignment_year)] <- rep(0,length(N_origin[,station,as.character(assignment_year)]))
     N_origin["West",station,as.character(assignment_year)] <- N_origin["West",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_West"])
     N_origin["East",station,as.character(assignment_year)] <- N_origin["East",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_East"])
-
+    
   }
-
+  
 }
 
 # Sample sizes
@@ -482,7 +482,7 @@ station_summary <- count_df %>%
   mutate(Lat = round(Lat,1),
          Lon = round(Lon,1)) 
 
-#write.csv(station_summary, file = paste0("1_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
+write.csv(station_summary, file = paste0("1_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
 
 # -------------------------------------------------------------------------
 # Create a plot of daily observed counts for each station
@@ -501,9 +501,9 @@ daily_count_plot <- ggplot(count_df)+
   facet_grid(station~year_abs, scales = "free_y")+
   ggtitle("Prebreeding migration")
 
-# png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 20, height = 12, res = 600)
-# daily_count_plot
-# dev.off()
+png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 30, height = 10, res = 600)
+daily_count_plot
+dev.off()
 
 # -------------------------------------------------------------------------
 # Create a plot of seasonal totals at each station
@@ -570,53 +570,54 @@ station_assignment_plot <- ggplot(data = station_assignments,
 
 station_assignment_plot
 
-# png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
-# station_assignment_plot
-# dev.off()
+png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
+station_assignment_plot
+dev.off()
 
 # ------------------------------------------------------
 # Fit Model
 # ------------------------------------------------------
 
-parameters.to.save = c("slope",
-                       "sigma_rho",
-                       "sigma_stationday",
-                       "rho",
-                       "migration_phenology_mean",
-                       "migration_phenology_sd",
-                       "M",
-                       "T",
-                       "expected_count",
-                       "sim_count",
-                       "X")
-
-
-rho_init <- jags_data$rho_fix * NA
-for (s in 1:ncol(rho_fix)) rho_init[,s] <- T_est$T1[T_est$station_number == s]
-inits <- function(){list(rho_prior = rho_init)}
-
-nsamp <- 2000
-nb <- 5000
-nt <- 50
-ni <- nb + nsamp*nt
-
-out <- jags(data = jags_data,
-            model.file = "migration_model.jags",
-            parameters.to.save = parameters.to.save,
-            inits = inits,
-            n.chains = 3,
-            n.thin = nt,
-            n.iter = ni,
-            n.burnin = nb,
-            parallel = TRUE)
-
-out$mcmc.info$elapsed.mins
+# parameters.to.save = c("slope",
+#                        "sigma_rho",
+#                        "sigma_stationday",
+#                        "rho",
+#                        "migration_phenology_mean",
+#                        "migration_phenology_sd",
+#                        "M",
+#                        "T",
+#                        "expected_count",
+#                        "sim_count",
+#                        "X")
+# 
+# 
+# rho_init <- jags_data$rho_fix * NA
+# for (s in 1:ncol(rho_fix)) rho_init[,s] <- T_est$T1[T_est$station_number == s]
+# inits <- function(){list(rho_prior = rho_init)}
+# 
+# nsamp <- 2000
+# nb <- 5000
+# nt <- 50
+# ni <- nb + nsamp*nt
+# 
+# out <- jags(data = jags_data,
+#             model.file = "migration_model.jags",
+#             parameters.to.save = parameters.to.save,
+#             inits = inits,
+#             n.chains = 3,
+#             n.thin = nt,
+#             n.iter = ni,
+#             n.burnin = nb,
+#             parallel = TRUE)
+# 
+# out$mcmc.info$elapsed.mins
 
 # ***************************************************************
 # ***************************************************************
 # PART 2: ASSESS MODEL CONVERGENCE AND EFFECTIVE SAMPLE SIZE
 # ***************************************************************
 # ***************************************************************
+load(paste0(output_directory,"wksp_Spring.RData"))
 
 #-------------------------------------------------------------------
 # Assess model convergence
@@ -662,44 +663,6 @@ MCMCvis::MCMCtrace(out, params = c("slope",
                    pdf = TRUE, filename = paste0("Traceplot_",focal_season,".pdf"), 
                    wd = paste0("1_output/",focal_season))
 
-# ***************************************************************
-# ***************************************************************
-# PART 3: SUMMARIZE DATA AVAILABILITY FOR APPENDIX 1
-# ***************************************************************
-# ***************************************************************
-
-# Summary of migration count availability at each station
-station_summary <- count_df %>%
-  rename(Year = year_abs, Station = station) %>%
-  group_by(Station,Year) %>%
-  summarize(Total_Count = sum(count),
-            Min_Day = min(day_number),
-            Max_Day = max(day_number),
-            n_days = length(unique(day_number))) %>%
-  group_by(Station) %>%
-  summarize(n_Years = length(unique(Year)),
-            First_Year = min(Year),
-            Last_Year = max(Year),
-            Year_Range = paste0(min(Year)," - ", max(Year)),
-            min_Count = min(Total_Count),
-            max_Count = max(Total_Count),
-            mean_Count = round(mean(Total_Count),1)) %>%
-  left_join(station_coordinates, by = c("Station" = "station")) %>%
-  dplyr::select(Station,name,country,lat,lon,Year_Range,mean_Count,min_Count,max_Count) %>%
-  rename("Station code" = Station,
-         "Station name" = name,
-         "Country" = country,
-         "Lat" = lat,
-         "Lon" = lon,
-         "Year range" = Year_Range,
-         "Mean annual count" = mean_Count,
-         "Min annual count" = min_Count,
-         "Max annual count" = max_Count) %>%
-  arrange(Lon) %>%
-  mutate(Lat = round(Lat,1),
-         Lon = round(Lon,1)) 
-
-write.csv(station_summary, file = paste0("1_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
 
 # ***************************************************************
 # ***************************************************************
@@ -728,7 +691,6 @@ for (i in 1:nrow(expected_vs_observed)){
   expected_vs_observed$expected_q975[i] <-  expected[3]
   expected_vs_observed$expected_mean[i] <-  out$sims.list$expected_count[,j] %>% apply(.,1,sum) %>% mean()
   
-  
 }
 
 # Correlation between observed and expected counts
@@ -745,6 +707,7 @@ plot_obs_vs_expected <- ggplot(data = expected_vs_observed)+
   geom_point(aes(x = year_abs, y = expected_mean, col = "Expected", shape = "Expected"))+
   geom_point(aes(x = year_abs, y = sum_obs, col = "Observed", shape = "Observed"))+
   geom_text(data = cor_obs_expected, aes(x = 1998, y = max*1.1, label = cor_label), hjust = 0, size = 3)+
+  geom_text(data = cor_obs_expected, aes(x = 1998, y = max*1.2, label = cor_label), hjust = 0, size = 3, col = "transparent")+
   facet_wrap(station~., scales = "free_y")+
   scale_color_manual(values=c("gray75","black"), name = "", guide = "none")+
   scale_shape_manual(values=c(19,4), name = "", guide = "none")+
@@ -965,10 +928,10 @@ trend_summarized <- trend_df %>%
             perc_change_2008_q025 = quantile(perc_change_2008,0.025)  %>% round(0),
             perc_change_2008_q975 = quantile(perc_change_2008,0.975)  %>% round(0),
   )
-
 # --------------------------------------
 # Plot indices
 # --------------------------------------
+
 indices_summarized$Stratum <- factor(indices_summarized$Stratum,levels = c("West","East","Continental"))
 ggplot(data = indices_summarized, 
        aes(x = Year,
@@ -984,8 +947,6 @@ ggplot(data = indices_summarized,
   ylab("Population Index")+
   facet_grid(.~Stratum, scales = "free_y")
 
-
-
 Spring_results <- list(indices_df = indices_df,
                        indices_summarized = indices_summarized,
                        trend_df = trend_df,
@@ -997,4 +958,3 @@ Spring_results$trend_summarized %>% as.data.frame()
 
 # Save/load entire workspace
 #save.image(paste0(output_directory,"wksp_Spring.RData"))
-#load(paste0(output_directory,"wksp_Spring.RData"))
