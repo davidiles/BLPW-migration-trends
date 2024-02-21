@@ -31,12 +31,12 @@
 
     for (j in 1:nstrata){
 
-    	rho_prior[j,s] ~ dlnorm(0,1/16)
-      rho[j,s] <- rho_prior[j,s] * rho_fix[j,s]
-      
+    	rho[j,s] ~ dlnorm(0,1/16)
+
       for (y in 1:nyear){
       
-         M[j,s,y] <- X[j,y] * rho[j,s]
+         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s]
+         #M[j,s,y] <- M_star[j,s,y] 
       }
       
     }
@@ -51,6 +51,7 @@
       # Total number of migrants in year [y] at station [s]
       sumM[s,y] <- sum(M[1:nstrata,s,y])
       T[s,y] ~ dlnorm(log(sumM[s,y]),tau_rho)
+      #T[s,y] <- sum(M[1:nstrata,s,y])
       
       # Proportion of birds from each stratum
       for (j in 1:nstrata){

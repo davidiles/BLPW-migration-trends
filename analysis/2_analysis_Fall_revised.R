@@ -1,7 +1,7 @@
 # *******************************************************************
 # *******************************************************************
 
-# Analysis of post-breeding (fall) migration data
+# Analysis of Postbreeding ("Fall") migration data
 
 # *******************************************************************
 # *******************************************************************
@@ -85,7 +85,7 @@ end_year <- 2018
 
 # Relevant directories / set working directory
 data_directory <- paste0("0_data/")
-output_directory <- paste0("2_output/",focal_season,"/")
+output_directory <- paste0("1_output/",focal_season,"/")
 figure_directory <- paste0(output_directory,"/figures/")
 table_directory <- paste0(output_directory,"/tables/")
 
@@ -358,90 +358,68 @@ jags_data <- list(nstrata = nstrata,
                   net_hrs = count_df$net_hrs)
 
 # End section that processes count data
+# ------------------------------------------------------
 
 
+
+# ------------------------------------------------------
 # PART 2: FORMAT BREEDING ORIGINS
-{
-  
-  # *****
-  # Breeding origin assignments
-  # *****
-  assignment_file = "0_data/Isotopes/isotope_assignments.xlsx"
-  
-  # First 7 columns contain the relevant data
-  assignments <- read_xlsx(assignment_file)[,c("location","season","year","lat","lon","stratum_West","stratum_Central","stratum_East")] %>% 
-    subset(season == focal_season & year %in% year_vec) %>%
-    mutate(assigned_to_West = stratum_West + stratum_Central,
-           assigned_to_East = stratum_East)
-  
-  # Spatial datasets used to assign breeding origin data to each migration monitoring station
-  assignments_sf <- assignments %>% st_as_sf(coords = c("lon", "lat"),crs = 4269, agr = "constant", remove = FALSE)
-  station_data_summarized_sf <- station_data_summarized_sf %>% st_transform(st_crs(assignments_sf)) # convert station locations to same crs
-  
-  # *****
-  # For each source of breeding origin data, determine the nearest migration station (within 300 km) and assign those
-  # data to be used at that station
-  # *****
-  
-  # An array to store assignment information at each migration monitoring station
-  N_origin <- array(NA, dim = c(jags_data$nstrata,jags_data$nstation, jags_data$nyear))
-  dimnames(N_origin)[[1]] <- c("East","West")
-  dimnames(N_origin)[[2]] <- station_names
-  dimnames(N_origin)[[3]] <- year_vec
-  
-  # Loop through isotope assignments, and assign them to nearest station (up to max distance of 250 km)
-  
-  for (i in 1:nrow(assignments_sf)){
-    
-    # Determine nearest station
-    dists <- st_distance(assignments_sf[i,],station_data_summarized_sf) %>% as.numeric()
-    if (min(dists) >= 250000) next
-    
-    inrange <- station_data_summarized_sf[which(dists < 250000),]
-    
-    assignment_year <- assignments_sf$year[i]
-    
-    for (station in inrange$station){
-      if (sum(is.na(N_origin[,station,as.character(assignment_year)]))>0) N_origin[1:(dim(N_origin)[1]),station,as.character(assignment_year)] <- rep(0,length(N_origin[,station,as.character(assignment_year)]))
-      N_origin["West",station,as.character(assignment_year)] <- N_origin["West",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_West"])
-      N_origin["East",station,as.character(assignment_year)] <- N_origin["East",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_East"])
-      
-    }
-    
+# ------------------------------------------------------
+
+# Breeding origin assignments
+assignment_file = "0_data/Isotopes/isotope_assignments.xlsx"
+
+# First 7 columns contain the relevant data
+assignments <- read_xlsx(assignment_file)[,c("location","season","year","lat","lon","stratum_West","stratum_Central","stratum_East")] %>% 
+  subset(season == focal_season & year %in% year_vec) %>%
+  mutate(assigned_to_West = stratum_West + stratum_Central,
+         assigned_to_East = stratum_East)
+
+# Spatial datasets used to assign breeding origin data to each migration monitoring station
+assignments_sf <- assignments %>% st_as_sf(coords = c("lon", "lat"),crs = 4269, agr = "constant", remove = FALSE)
+station_data_summarized_sf <- station_data_summarized_sf %>% st_transform(st_crs(assignments_sf)) # convert station locations to same crs
+
+# *****
+# For each source of breeding origin data, assign it to all stations within 250 km to estimate their catchment
+# *****
+
+# An array to store assignment information at each migration monitoring station
+N_origin <- array(NA, dim = c(jags_data$nstrata,jags_data$nstation, jags_data$nyear))
+dimnames(N_origin)[[1]] <- c("East","West")
+dimnames(N_origin)[[2]] <- station_names
+dimnames(N_origin)[[3]] <- year_vec
+
+# Loop through isotope assignments, and assign them to all stations within 100 km
+
+for (i in 1:nrow(assignments_sf)){
+
+  # Determine nearest station
+  dists <- st_distance(assignments_sf[i,],station_data_summarized_sf) %>% as.numeric()
+  if (min(dists) >= 100000) next
+
+  inrange <- station_data_summarized_sf[which(dists < 100000),]
+
+  assignment_year <- assignments_sf$year[i]
+
+  for (station in inrange$station){
+    if (sum(is.na(N_origin[,station,as.character(assignment_year)]))>0) N_origin[1:(dim(N_origin)[1]),station,as.character(assignment_year)] <- rep(0,length(N_origin[,station,as.character(assignment_year)]))
+    N_origin["West",station,as.character(assignment_year)] <- N_origin["West",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_West"])
+    N_origin["East",station,as.character(assignment_year)] <- N_origin["East",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_East"])
+
   }
-  
-  # Sample sizes
-  N_station_sampled <- apply(N_origin,c(2,3), sum)
-  N_station_sampled[is.na(N_station_sampled)] <- 999  # Placeholder for sample size in years with no stable isotope information
-  
-  # Append to jags data package
-  jags_data$N_origin <- N_origin
-  jags_data$N_station_sampled <- N_station_sampled
-  
-} # End breeding origin processing script
 
+}
 
-year_vec <- min(count_df$year_abs):max(count_df$year_abs)
+# Sample sizes
+N_station_sampled <- apply(N_origin,c(2,3), sum)
+N_station_sampled[is.na(N_station_sampled)] <- 999  # Placeholder for sample size in years with no stable isotope information
 
-# ******************************************************************
-# CALCULATE APPROXIMATE ANNUAL INDICES AS sum(count/net_hrs)
-# This helps set reasonable priors
-# ******************************************************************
+# Append to jags data package
+jags_data$N_origin <- N_origin
+jags_data$N_station_sampled <- N_station_sampled
 
-Tstar = count_df %>%
-  group_by(station,year_abs) %>%
-  summarize(Tstar = sum(count/net_hrs))
-
-Tstar %>%
-  group_by(station) %>%
-  summarize(mean_Tstar = mean(Tstar),
-            min_Tstar = min(Tstar),
-            max_Tstar = max(Tstar),
-            med_Tstar = median(Tstar))
-
-ggplot(Tstar, aes(x = Tstar))+
-  geom_histogram()+
-  facet_wrap(station~., scales = "free")
+# End section processing breeding origins
+# ------------------------------------------------------
 
 # ******************************************************************
 # PREPARE FOR ANALYSIS WITH JAGS
@@ -462,144 +440,12 @@ western_stations <- c("CFMS","TLBBS","MNO","LMBO")
 rho_fix["East", western_stations] <- 0 
 
 # Do not use isotope data in model for those stations
-jags_data$N_origin[,western_stations,] <- NA
-
 jags_data$rho_fix <- rho_fix
-jags_data$pprior <- rho_fix
-for (s in 1:ncol(jags_data$pprior)) jags_data$pprior[,s] <- jags_data$pprior[,s]/sum(jags_data$pprior[,s])
-
-# ------------------
-# Fit Model
-# ------------------
-
-parameters.to.save = c("slope",
-                       "sigma_rho",
-                       "sigma_X",
-                       "sigma_stationday",
-                       "migration_phenology_sd",
-                       "migration_phenology_mean",
-                       "rho",
-                       "M",
-                       "T",
-                       "expected_count",
-                       "sim_count",
-                       "X"
-)
-
-
-inits <- NULL
-nsamp <- 2000
-nb <- 10000
-nt <- 200
-ni <- nb + nsamp*nt
-
-# Treating rho prior as uniform
-out <- jags(data = jags_data,
-            model.file = "migration_model.jags",
-            parameters.to.save = parameters.to.save,
-            inits = inits,
-            n.chains = 3,
-            n.thin = nt,
-            n.iter = ni,
-            n.burnin = nb,
-            parallel = TRUE)
-
-out$mcmc.info$elapsed.mins 
-
-save.image(paste0(output_directory,"analysis_",focal_season,".RData"))
-
-# ------------------
-# Save/load workspace
-# ------------------
-
-# Load fitted model
-#load(paste0(output_directory,"analysis_",focal_season,".RData"))
-
-out$mcmc.info$elapsed.mins 
+jags_data$p0 <- rho_fix / colSums(rho_fix)
 
 # ***************************************************************
 # ***************************************************************
-# PART 2: ASSESS MODEL CONVERGENCE AND EFFECTIVE SAMPLE SIZE
-# ***************************************************************
-# ***************************************************************
-
-#-------------------------------------------------------------------
-# Assess model convergence
-#-------------------------------------------------------------------
-
-latent_parameters <- c("slope",
-                       "sigma_proc",
-                       "sigma_rho",
-                       "sigma_stationday",
-                       "migration_phenology_sd",
-                       "migration_phenology_mean",
-                       "log_rho_mu")
-
-latent_states <- names(out$Rhat)[which(!(names(out$Rhat) %in% latent_parameters | names(out$Rhat) %in% c("sim_count","X2_sim","X2_obs")))]
-
-# Rhat
-max(unlist(out$Rhat[latent_parameters]), na.rm = TRUE)
-length(unlist(out$Rhat[latent_parameters]))
-mean(unlist(out$Rhat[latent_parameters]) > 1.1, na.rm = TRUE)
-
-max(unlist(out$Rhat[latent_states]), na.rm = TRUE)
-length(unlist(out$Rhat[latent_states]))
-mean(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
-sum(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
-unlist(out$Rhat[latent_states])[which(unlist(out$Rhat[latent_states]) > 1.1)]
-
-# Effective sample sizes
-n.eff <- unlist(out$n.eff[!(names(out$Rhat) %in% c("sim_count","X2_sim","X2_obs"))])
-
-# Parameters with fewer than 1000 samples
-n.eff[n.eff > 1 & n.eff <= 1000] 
-mean(n.eff[n.eff>1]<1000)
-
-# Traceplot
-MCMCvis::MCMCtrace(out, params = c("slope",
-                                   "sigma_rho",
-                                   "sigma_stationday",
-                                   "migration_phenology_sd",
-                                   "migration_phenology_mean",
-                                   "X"),
-                   Rhat = TRUE,n.eff = TRUE, ind = TRUE,
-                   pdf = TRUE, filename = paste0("Traceplot_",focal_season,".pdf"), 
-                   wd = paste0("2_output/",focal_season))
-
-# ***************************************************************
-# ***************************************************************
-# 
-# ***************************************************************
-# ***************************************************************
-
-a = out$sims.list$X %>% reshape2::melt() %>%
-  dplyr::rename(samp = Var1, strata = Var2, year = Var3, x = value) %>%
-  group_by(year,strata) %>%
-  summarize(x_q50 = quantile(x,0.5),
-            x_q025 = quantile(x,0.025),
-            x_q975 = quantile(x,0.975))
-a$strata = factor(a$strata)
-
-samps <- out$sims.list$X %>% 
-  reshape2::melt() %>%
-  dplyr::rename(samp = Var1, strata = Var2, year = Var3, x = value)
-samps$samp <- factor(samps$samp)
-samps$strata = factor(samps$strata)
-
-
-ggplot()+
-  
-  geom_line(data = samps, aes(x = year, y = x, col = samp), alpha = 0.02)+
-  geom_line(data = a, aes(x = year, y = x_q025), col = "darkblue", linetype = 2)+
-  geom_line(data = a, aes(x = year, y = x_q975), col = "darkblue", linetype = 2)+
-  geom_line(data = a, aes(x = year, y = x_q50), col = "darkblue", linewidth = 1)+
-  scale_y_continuous(trans = "log10")+
-  scale_color_manual(values = rep("dodgerblue",length(unique(samps$samp))), guide = "none")+
-  facet_grid(strata~.)
-
-# ***************************************************************
-# ***************************************************************
-# PART 3: SUMMARIZE DATA AVAILABILITY ACROSS THE STUDY REGION
+# PART 3: SUMMARIZE DATA AVAILABILITY FOR APPENDIX 1
 # ***************************************************************
 # ***************************************************************
 
@@ -634,61 +480,55 @@ station_summary <- count_df %>%
   mutate(Lat = round(Lat,1),
          Lon = round(Lon,1)) 
 
-write.csv(station_summary, file = paste0("2_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
+write.csv(station_summary, file = paste0("1_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
 
-# ***************************************************************
-# ***************************************************************
-# PART 4: GOODNESS OF FIT
-# ***************************************************************
-# ***************************************************************
+# -------------------------------------------------------------------------
+# Create a plot of daily observed counts for each station
+# -------------------------------------------------------------------------
 
-#-------------------------------------------------------------------
-# Plot model predictions overlaid with observed counts (black x)
-#-------------------------------------------------------------------
+stations_west_to_east <- station_summary %>% arrange(Lon) %>%
+  dplyr::rename(station = 'Station code')
+stations_west_to_east <- unique(stations_west_to_east$station)
+count_df$station <- factor(count_df$station, levels = stations_west_to_east)
 
-expected_vs_observed <- count_df %>%
+daily_count_plot <- ggplot(count_df)+
+  geom_point(aes(x = day_number, y = count/net_hrs))+
+  scale_y_continuous(trans="log10")+
+  ylab("log(count / net hour)")+
+  xlab("Day of the year")+
+  facet_grid(station~year_abs, scales = "free_y")+
+  ggtitle("Postbreeding migration")
+
+# png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 20, height = 12, res = 600)
+# daily_count_plot
+# dev.off()
+
+# -------------------------------------------------------------------------
+# Create a plot of seasonal totals at each station
+# -------------------------------------------------------------------------
+
+seasonal_sum_df <- count_df %>%
   group_by(station,year_abs) %>%
-  summarize(sum_obs = sum(count))
+  summarize(sum = sum(count/net_hrs))
 
-# Calculate uncertainty in expected count for each station-year combination
-for (i in 1:nrow(expected_vs_observed)){
-  
-  # Which observations correspond to this year/station combination?
-  j <- which(count_df$year_abs == expected_vs_observed$year_abs[i] & 
-               count_df$station == expected_vs_observed$station[i])
-  
-  expected <- out$sims.list$sim_count[,j] %>% apply(.,1,sum) %>% quantile(c(0.025,0.5,0.975))
-  expected_vs_observed$expected_q025[i] <-  expected[1]
-  expected_vs_observed$expected_q50[i]  <-  expected[2]
-  expected_vs_observed$expected_q975[i] <-  expected[3]
-  
-}
-
-# Correlation between observed and expected counts
-cor_obs_expected <- expected_vs_observed %>%
-  group_by(station) %>%
-  summarize(cor = round(cor(sum_obs,expected_q50),2),
-            max = max(c(sum_obs,expected_q975)))
-
-# Plot
-cor_obs_expected$cor_label <- paste0("cor = ",cor_obs_expected$cor)
-
-plot_obs_vs_expected <- ggplot(data = expected_vs_observed)+
-  geom_errorbar(aes(x = year_abs, ymin = expected_q025,ymax = expected_q975, col = "Expected"), width = 0)+
-  geom_point(aes(x = year_abs, y = expected_q50, col = "Expected", shape = "Expected"))+
-  geom_point(aes(x = year_abs, y = sum_obs, col = "Observed", shape = "Observed"))+
-  geom_text(data = cor_obs_expected, aes(x = 1998, y = max*1.1, label = cor_label), hjust = 0, size = 3)+
-  facet_wrap(station~., scales = "free_y")+
-  scale_color_manual(values=c("gray75","black"), name = "", guide = "none")+
-  scale_shape_manual(values=c(19,4), name = "", guide = "none")+
+seasonal_sum_plot <- ggplot(seasonal_sum_df)+
+  geom_point(aes(x = year_abs, y = sum))+
+  ylab("sum(count/net hour)")+
   xlab("Year")+
-  ylab("Total Seasonal Count")+
-  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPost-breeding migration")
-plot_obs_vs_expected
+  facet_wrap(station~., scales = "free_y")+
+  ggtitle("Postbreeding migration")
 
-png(file = paste0(output_directory,"figures/Appendix_GOF_mig_counts_at_each_station.png"), units = "in", width = 8, height = 8, res = 600)
-plot_obs_vs_expected
-dev.off()
+seasonal_sum_plot
+
+# -------------------------------------------------------------------------
+# Empirical estimates of T at each station
+# -------------------------------------------------------------------------
+
+T_est <- count_df %>%
+  group_by(station_number,year_abs) %>%
+  summarize(T = sum(count/(exp(0.5*0.5^2)*net_hrs))) %>%
+  group_by(station_number) %>%
+  summarize(T1 = median(T))
 
 #-------------------------------------------------------------------
 # Breeding origin assignments at each station
@@ -698,6 +538,10 @@ station_assignments <- jags_data$N_origin %>%
   reshape2::melt() %>%
   rename(Stratum = Var1, Station = Var2, Year = Var3, n = value)
 station_assignments$Stratum = factor(station_assignments$Stratum, levels = c("West","East"))
+
+station_assignments <- left_join(station_assignments, station_summary[,c("Station code","Lat","Lon")], by = c("Station" = "Station code"))
+station_assignments <- arrange(station_assignments, Lon, Year)
+station_assignments$Station <- factor(station_assignments$Station, levels = unique(station_assignments$Station))
 
 station_fixed_rho <- jags_data$rho_fix %>%
   reshape2::melt() %>%
@@ -716,14 +560,158 @@ station_assignment_plot <- ggplot(data = station_assignments,
   scale_fill_manual(values = strata_colours, name = "Stratum of origin")+
   facet_wrap(Station~.)+
   xlim(c(range(station_assignments$Year)))+
-  ggtitle(focal_season)+
+  ggtitle("Postbreeding Migration")+
   ylab("Number of bird samples analyzed")+
   theme(axis.text.x = element_text(angle = 45, hjust=1))
 
 station_assignment_plot
 
-png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
-station_assignment_plot
+# png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
+# station_assignment_plot
+# dev.off()
+
+# ------------------------------------------------------
+# Fit Model
+# ------------------------------------------------------
+
+parameters.to.save = c("slope",
+                       "sigma_rho",
+                       "sigma_stationday",
+                       "rho",
+                       "migration_phenology_mean",
+                       "migration_phenology_sd",
+                       "M",
+                       "T",
+                       "expected_count",
+                       "sim_count",
+                       "X")
+
+
+rho_init <- jags_data$rho_fix * NA
+for (s in 1:ncol(rho_fix)) rho_init[,s] <- T_est$T1[T_est$station_number == s]
+inits <- function(){list(rho_prior = rho_init)}
+
+nsamp <- 2000
+nb <- 5000
+nt <- 50
+ni <- nb + nsamp*nt
+
+out <- jags(data = jags_data,
+            model.file = "migration_model.jags",
+            parameters.to.save = parameters.to.save,
+            inits = inits,
+            n.chains = 3,
+            n.thin = nt,
+            n.iter = ni,
+            n.burnin = nb,
+            parallel = TRUE)
+
+out$mcmc.info$elapsed.mins
+
+# ***************************************************************
+# ***************************************************************
+# PART 2: ASSESS MODEL CONVERGENCE AND EFFECTIVE SAMPLE SIZE
+# ***************************************************************
+# ***************************************************************
+
+#-------------------------------------------------------------------
+# Assess model convergence
+#-------------------------------------------------------------------
+
+latent_parameters <- c("slope",
+                       "sigma_proc",
+                       "sigma_rho",
+                       "sigma_stationday",
+                       "migration_phenology_sd",
+                       "migration_phenology_mean",
+                       "log_rho_mu")
+
+latent_states <- names(out$Rhat)[which(!(names(out$Rhat) %in% latent_parameters | names(out$Rhat) %in% c("sim_count")))]
+
+# Rhat
+max(unlist(out$Rhat[latent_parameters]), na.rm = TRUE)
+length(unlist(out$Rhat[latent_parameters]))
+mean(unlist(out$Rhat[latent_parameters]) > 1.1, na.rm = TRUE)
+
+max(unlist(out$Rhat[latent_states]), na.rm = TRUE)
+length(unlist(out$Rhat[latent_states]))
+mean(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
+sum(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
+unlist(out$Rhat[latent_states])[which(unlist(out$Rhat[latent_states]) > 1.1)]
+
+# Effective sample sizes
+n.eff <- unlist(out$n.eff[!(names(out$Rhat) %in% c("sim_count"))])
+
+# Parameters with fewer than 1000 samples
+n.eff[n.eff > 1 & n.eff <= 1000] 
+mean(n.eff[n.eff>1]<1000)
+
+# Traceplot
+MCMCvis::MCMCtrace(out, params = c("slope",
+                                   "sigma_rho",
+                                   "sigma_stationday",
+                                   "rho",
+                                   "migration_phenology_mean",
+                                   "migration_phenology_sd",
+                                   "X"),
+                   Rhat = TRUE,n.eff = TRUE, ind = TRUE,
+                   pdf = TRUE, filename = paste0("Traceplot_",focal_season,".pdf"), 
+                   wd = paste0("1_output/",focal_season))
+
+# ***************************************************************
+# ***************************************************************
+# PART 4: GOODNESS-OF-FIT
+# ***************************************************************
+# ***************************************************************
+
+#-------------------------------------------------------------------
+# Plot model predictions overlaid with observed counts (black x)
+#-------------------------------------------------------------------
+
+expected_vs_observed <- count_df %>%
+  group_by(station,year_abs) %>%
+  summarize(sum_obs = sum(count))
+
+# Calculate uncertainty in expected count for each station-year combination
+for (i in 1:nrow(expected_vs_observed)){
+  
+  # Which observations correspond to this year/station combination?
+  j <- which(count_df$year_abs == expected_vs_observed$year_abs[i] & 
+               count_df$station == expected_vs_observed$station[i])
+  
+  expected <- out$sims.list$expected_count[,j] %>% apply(.,1,sum) %>% quantile(c(0.025,0.5,0.975))
+  expected_vs_observed$expected_q025[i] <-  expected[1]
+  expected_vs_observed$expected_q50[i]  <-  expected[2]
+  expected_vs_observed$expected_q975[i] <-  expected[3]
+  expected_vs_observed$expected_mean[i] <-  out$sims.list$expected_count[,j] %>% apply(.,1,sum) %>% mean()
+  
+  
+}
+
+# Correlation between observed and expected counts
+cor_obs_expected <- expected_vs_observed %>%
+  group_by(station) %>%
+  summarize(cor = round(cor(sum_obs,expected_mean),2),
+            max = max(c(sum_obs,expected_q975)))
+
+# Plot
+cor_obs_expected$cor_label <- paste0("cor = ",cor_obs_expected$cor)
+
+plot_obs_vs_expected <- ggplot(data = expected_vs_observed)+
+  geom_errorbar(aes(x = year_abs, ymin = expected_q025,ymax = expected_q975, col = "Expected"), width = 0)+
+  geom_point(aes(x = year_abs, y = expected_mean, col = "Expected", shape = "Expected"))+
+  geom_point(aes(x = year_abs, y = sum_obs, col = "Observed", shape = "Observed"))+
+  geom_text(data = cor_obs_expected, aes(x = 1998, y = max*1.1, label = cor_label), hjust = 0, size = 3)+
+  facet_wrap(station~., scales = "free_y")+
+  scale_color_manual(values=c("gray75","black"), name = "", guide = "none")+
+  scale_shape_manual(values=c(19,4), name = "", guide = "none")+
+  xlab("Year")+
+  ylab("Total Seasonal Count")+
+  ggtitle("Observed vs Expected Seasonal Total Counts\n\nPostbreeding migration")
+plot_obs_vs_expected
+
+png(file = paste0(output_directory,"figures/Appendix_GOF_mig_counts_at_each_station.png"), units = "in", width = 8, height = 6, res = 600)
+plot_obs_vs_expected
 dev.off()
 
 #-------------------------------------------------------------------
@@ -760,35 +748,190 @@ BPval_plot <- ggplot(data = Bayesian_pvals,
   geom_point() +
   geom_hline(yintercept = c(0.2,0.8), col = "red", linewidth = 0.5,linetype = 2)+
   coord_cartesian(ylim=c(0,1))+
-  ggtitle("Post-breeding Migration\n\nPosterior predictive checks\n\n(Proportion of observed datasets with\nlarger X2-statistic than simulated datasets)")+
+  ggtitle("Postbreeding Migration\n\nPosterior predictive checks\n\n(Proportion of observed datasets with\nlarger X2-statistic than simulated datasets)")+
   xlab("Year")+
   ylab("Bayesian p-value")+
   facet_wrap(station~.)+
   theme_bw()
 BPval_plot
 
-png(file = paste0("2_output/",focal_season,"/figures/Appendix_GOF_Posterior_Predictive_Checks.png"), units = "in", width = 8, height = 6, res = 600)
+png(file = paste0("1_output/",focal_season,"/figures/Appendix_GOF_Posterior_Predictive_Checks.png"), units = "in", width = 8, height = 6, res = 600)
 BPval_plot
 dev.off()
 
-# -------------------------------------------------------------------------
-# Create a plot of daily observed counts for each station
-# -------------------------------------------------------------------------
+# *******************************************************************
+# *******************************************************************
+# Calculate regional trends based on stratum-level indices (X)
+# - Also use relative abundance estimates to calculate continental trends
+# - Create figure illustrating trajectories
+# - NOTE THAT RELATIVE ABUNDANCES IN EACH STRATUM NEED TO BE CALCULATED FIRST,
+#   DONE IN SCRIPT 0
+# *******************************************************************
+# *******************************************************************
 
-daily_count_plot <- ggplot(count_df)+
-  geom_point(aes(x = day_number, y = count/net_hrs))+
-  scale_y_continuous(trans="log10")+
-  ylab("log(count / net hour)")+
-  xlab("Day of the year")+
-  facet_grid(station~year_abs, scales = "free_y")+
-  ggtitle("Post-breeding migration")
+# ---------------------------------
+# LOAD RELATIVE ABUNDANCE ESTIMATES
+# ---------------------------------
 
-png(file = paste0("2_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 20, height = 12, res = 600)
-daily_count_plot
-dev.off()
+year_vec <- seq(1998,2018)
+relabund <- read.csv("1_output/Results_MainText/relabund_eBird_BAM.csv")
 
-# ***************************************************************
-# ***************************************************************
-# NOTE: FIGURES AND SUMMARY OF RESULTS FOR MANUSCRIPT WILL BE PRODUCED BY SCRIPT 4_SUMMARIZE_RESULTS.R
-# ***************************************************************
-# ***************************************************************
+source_of_estimate <- "BAM"
+relabund <- subset(relabund, Source == source_of_estimate)
+relabund$Sum <- relabund$Sum/relabund$Sum[1]
+
+# Year to which relative abundance will be "pinned"
+if (source_of_estimate == "eBird") relabund_year_number <- which(year_vec == 2018)
+if (source_of_estimate == "BAM") relabund_year_number <- which(year_vec == 2011)
+
+# ---------------------------------
+# Postbreeding migration
+# ---------------------------------
+
+# ~~~~~~~~~~
+# Extract and rescale annual indices
+# ~~~~~~~~~~
+
+# Extract annual indices
+X <- out$sims.list$X
+
+# For each sample from posterior, re-scale estimates based on relative abundance (for continental trend estimate)
+stratum_indices_df <- X %>% reshape2::melt() %>% 
+  rename(sample = Var1, stratum_number = Var2, year_number = Var3, indices = value) %>%
+  mutate(Stratum = c("East","West")[stratum_number],
+         Year = year_vec[year_number],
+         indices_rescaled = NA)
+
+annual_means <- stratum_indices_df %>%
+  group_by(Year,year_number,Stratum,stratum_number) %>%
+  summarize(index_median = median(indices))
+
+for (mcmc in 1:dim(X)[1]){
+  
+  # Estimates of log-linear slope
+  for (stratum_number in 1:jags_data$nstrata){
+    
+    indices <- X[mcmc,stratum_number,]
+    
+    # Mean index in year of relative abundance estimate
+    median_in_relabund_year <- annual_means$index_median[annual_means$year_number == relabund_year_number & annual_means$stratum_number == stratum_number]
+    indices_rescaled <- indices/median_in_relabund_year * relabund$Sum[stratum_number]
+    
+    # Fill in dataframe
+    row <- which(stratum_indices_df$sample == mcmc & stratum_indices_df$stratum_number == stratum_number)
+    stratum_indices_df$indices_rescaled[row] <- indices_rescaled
+    
+  }
+  
+  print(mcmc)
+  
+}
+
+# ~~~~~~~~~~
+# Summarize stratum-level indices
+# ~~~~~~~~~~
+
+# Annual indices
+stratum_indices_summarized <- stratum_indices_df %>%
+  group_by(Stratum,Year) %>%
+  summarize(
+    
+    # On original scale
+    indices_q025 = quantile(indices,0.025),
+    indices_q500 = quantile(indices,0.500),
+    indices_q975 = quantile(indices,0.975),
+    
+    # Rescaled
+    indices_rescaled_q025 = quantile(indices_rescaled,0.025),
+    indices_rescaled_q500 = quantile(indices_rescaled,0.500),
+    indices_rescaled_q975 = quantile(indices_rescaled,0.975)
+  )
+
+# ~~~~~~~~~~
+# Continental estimates based on sum of rescaled X estimates
+# ~~~~~~~~~~
+
+continental_indices_df <- stratum_indices_df %>%
+  group_by(sample,Year) %>%
+  summarize(indices_rescaled = sum(indices_rescaled)) %>%
+  mutate(Stratum = "Continental")
+
+# Summarize
+continental_indices_summarized <- continental_indices_df %>%
+  group_by(Year,Stratum) %>%
+  summarize(
+    
+    indices_rescaled_q025 = quantile(indices_rescaled,0.025),
+    indices_rescaled_q500 = quantile(indices_rescaled,0.500),
+    indices_rescaled_q975 = quantile(indices_rescaled,0.975)
+  )
+
+# ~~~~~~~~~~
+# Combine stratum-level and continental estimates into a single dataframe (for plotting)
+# ~~~~~~~~~~
+
+indices_df <- bind_rows(stratum_indices_df,continental_indices_df)
+indices_summarized <- bind_rows(stratum_indices_summarized,continental_indices_summarized)
+
+# ~~~~~~~~~~
+# Calculate trends
+# ~~~~~~~~~~
+
+yend = 2018 # End year
+y0 = 1998   # Start year
+
+trend_df <- indices_df %>%
+  group_by(Stratum,sample) %>%
+  mutate(trend = 100*((indices_rescaled[Year == yend]/indices_rescaled[Year == y0])^(1/(yend-y0))-1),
+         perc_change_1998 = 100*(indices_rescaled[Year == 2018] - indices_rescaled[Year == 1998])/indices_rescaled[Year == 1998],
+         perc_change_2008 = 100*(indices_rescaled[Year == 2018] - indices_rescaled[Year == 2008])/indices_rescaled[Year == 2008]
+  )
+
+trend_summarized <- trend_df %>%
+  group_by(Stratum) %>%
+  summarize(trend_q500 = quantile(trend,0.500) %>% round(1),
+            trend_q025 = quantile(trend,0.025)  %>% round(1),
+            trend_q975 = quantile(trend,0.975)  %>% round(1),
+            
+            prob_positive = mean(trend>0)  %>% round(2),
+            
+            perc_change_1998_q500 = quantile(perc_change_1998,0.500) %>% round(0),
+            perc_change_1998_q025 = quantile(perc_change_1998,0.025)  %>% round(0),
+            perc_change_1998_q975 = quantile(perc_change_1998,0.975)  %>% round(0),
+            
+            perc_change_2008_q500 = quantile(perc_change_2008,0.500) %>% round(0),
+            perc_change_2008_q025 = quantile(perc_change_2008,0.025)  %>% round(0),
+            perc_change_2008_q975 = quantile(perc_change_2008,0.975)  %>% round(0),
+  )
+
+Fall_results <- list(indices_df = indices_df,
+                       indices_summarized = indices_summarized,
+                       trend_df = trend_df,
+                       trend_summarized = trend_summarized)
+
+Fall_results$trend_summarized %>% as.data.frame()
+
+# --------------------------------------
+# Plot indices
+# --------------------------------------
+indices_summarized$Stratum <- factor(indices_summarized$Stratum,levels = c("West","East","Continental"))
+ggplot(data = indices_summarized, 
+               aes(x = Year,
+                   y = indices_rescaled_q500, 
+                   ymin = indices_rescaled_q025, 
+                   ymax = indices_rescaled_q975,
+                   col = Stratum),
+)+
+  geom_errorbar(width = 0)+
+  geom_hline(yintercept = 0, col = "transparent")+
+  geom_point()+
+  scale_color_manual(values=c(strata_colours,"black"),guide="none")+
+  ylab("Population Index")+
+  facet_grid(.~Stratum, scales = "free_y")
+
+# --------------------------------------
+# Save
+# --------------------------------------
+# Save/load entire workspace
+#saveRDS(Fall_results,paste0(output_directory,"results_Fall.rds"))
+#save.image(paste0(output_directory,"wksp_Fall.RData"))

@@ -13,8 +13,7 @@
     for (j in 1:nstrata){
     
       for (y in 1:nyear){
-         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s] 
-         
+         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s]
       }
       
     }
@@ -32,7 +31,7 @@
       
       # Proportion of birds from each stratum
       for (j in 1:nstrata){
-        p[j,s,y] <- M[j,s,y]/sumM[s,y]
+        p[j,s,y] <- M[j,s,y]/T[s,y]
       }
 
       # Multinomial likelihood for observed breeding origins in sample of birds
@@ -46,9 +45,11 @@
   # ---------------------------------------------
 
   # Daily overdispersion in counts at each site (e.g., due to daily weather, stopover behavior, etc.)
+  tau_stationday <- pow(sigma_stationday,-2)
+  
+  # Seasonal migration window
   for (s in 1:nstation){
     migration_phenology_tau[s] <- pow(migration_phenology_sd[s],-2)
-    tau_stationday[s] <- pow(sigma_stationday[s],-2)
   }
 
   for (i in 1:nobs){
@@ -58,7 +59,7 @@
     mu[i] <- log(f[i]) + log(T[station[i],year[i]])
     
     # Add daily overdispersion
-    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday[station[i]])
+    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday)
     count[i] ~ dpois(exp(log_lambda[i]))
 
   }

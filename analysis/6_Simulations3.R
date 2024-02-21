@@ -76,8 +76,7 @@ cat("
     for (j in 1:nstrata){
     
       for (y in 1:nyear){
-         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s] 
-         
+         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s]
       }
       
     }
@@ -95,7 +94,7 @@ cat("
       
       # Proportion of birds from each stratum
       for (j in 1:nstrata){
-        p[j,s,y] <- M[j,s,y]/sumM[s,y]
+        p[j,s,y] <- M[j,s,y]/T[s,y]
       }
 
       # Multinomial likelihood for observed breeding origins in sample of birds
@@ -109,9 +108,11 @@ cat("
   # ---------------------------------------------
 
   # Daily overdispersion in counts at each site (e.g., due to daily weather, stopover behavior, etc.)
+  tau_stationday <- pow(sigma_stationday,-2)
+  
+  # Seasonal migration window
   for (s in 1:nstation){
     migration_phenology_tau[s] <- pow(migration_phenology_sd[s],-2)
-    tau_stationday[s] <- pow(sigma_stationday[s],-2)
   }
 
   for (i in 1:nobs){
@@ -121,7 +122,7 @@ cat("
     mu[i] <- log(f[i]) + log(T[station[i],year[i]])
     
     # Add daily overdispersion
-    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday[station[i]])
+    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday)
     count[i] ~ dpois(exp(log_lambda[i]))
 
   }
@@ -131,10 +132,10 @@ cat("
 sink()
 
 sim_results <- data.frame()
-sim_file <- "1_output/simulation/sim_results.Rdata"
+sim_file <- "1_output/simulation/sim_results_linear.Rdata"
 if (file.exists(sim_file)) load(file = sim_file)
 
-for (simulation_rep in 1:250){
+for (simulation_rep in rev(1:250)){
   
   print(simulation_rep)
   
@@ -150,11 +151,10 @@ for (simulation_rep in 1:250){
   # Simulate true trends for each of two strata (drawing uniformly from -0.1 to 0.1 for each stratum)
   # ------------------
   
-  sigma_X <- out$mean$sigma_X
   slopes_true <- runif(2,-0.1,0.1)
   X_sim <- matrix(0,nrow=jags_data$nstrata,ncol=jags_data$nyear)
   for (j in 1:jags_data$nstrata){
-    logX_sim <- rnorm(jags_data$nyear,runif(1,log(0.1),log(10)) + slopes_true[j] * ((1:jags_data$nyear)-1),sigma_X) 
+    logX_sim <- slopes_true[j] * ((1:jags_data$nyear)-1)
     X_sim[j,] <- exp(logX_sim)
   }
   
@@ -173,7 +173,7 @@ for (simulation_rep in 1:250){
   jags_data_sim$sigma_rho <- out$mean$sigma_rho
   
   # Magnitude of extra-Poisson day-to-day variation in counts at each site
-  jags_data_sim$sigma_stationday <- sample(out$mean$sigma_stationday, size = jags_data_sim$nstation,replace=TRUE)
+  jags_data_sim$sigma_stationday <- out$mean$sigma_stationday
   
   # Migration phenology at each station
   jags_data_sim$migration_phenology_mean <- sample(out$mean$migration_phenology_mean, size = jags_data_sim$nstation,replace=TRUE)
@@ -185,7 +185,7 @@ for (simulation_rep in 1:250){
   # Randomly select from a wide range of rho parameters among stations
   #  - Most sites capture relatively few birds (per unit effort), but some capture a lot
   jags_data_sim$rho <- array(
-    exp(runif(length(jags_data_sim$rho),log(0.001),log(3))),
+    exp(runif(length(jags_data_sim$rho),log(0.01),log(2))),
     dim=dim(jags_data_sim$rho))
   
   # ------------------
@@ -199,7 +199,7 @@ for (simulation_rep in 1:250){
   # Assume up to 20 isotope samples will be collected at each site
   jags_data_sim$N_station_sampled <- array(20,dim = dim(jags_data$N_station_sampled), dimnames = dimnames(jags_data$N_station_sampled))
   
-  parameters.to.save = c("N_origin","count","station_composition")
+  parameters.to.save = c("N_origin","count")
   
   inits <- NULL
   nsamp <- 1
@@ -219,23 +219,21 @@ for (simulation_rep in 1:250){
   
   out_sim$mcmc.info$elapsed.mins
   
+  
   # **************************************************************************************
   # **************************************************************************************
   # Summarize resultant seasonal totals (confirm they are reasonable)
   # **************************************************************************************
   # **************************************************************************************
+  
   count_df_sim <- count_df
   count_df_sim$count <- out_sim$sims.list$count[1,]
   
-  station_totals_sim <- count_df_sim %>%
+  T_est <- count_df_sim %>%
     group_by(station_number,year_abs) %>%
-    summarize(count = sum(count)) %>%
+    summarize(T = sum(count/(exp(0.5*0.5^2)*net_hrs))) %>%
     group_by(station_number) %>%
-    summarize(min_count = min(count),
-              mean_count = mean(count),
-              max_count = max(count))
-  
-  station_totals_sim %>% as.data.frame()
+    summarize(T1 = median(T))
   
   # **************************************************************************************
   # **************************************************************************************
@@ -258,8 +256,13 @@ for (simulation_rep in 1:250){
   # Assume catchment is unknown for every station (none are fixed to zero)
   jags_data_refit$rho_fix[,] <- 1
   
+  rho_init <- jags_data$rho_fix * NA
+  for (s in 1:ncol(rho_fix)) rho_init[,s] <- T_est$T1[T_est$station_number == s]
+  
+  inits <- function(){list(rho = rho_init)}
+  
   # ------------------
-  # Fit model to simulated data; evaluate trends
+  # Fit model to simulated data; see if trends can be recovered
   # ------------------
   
   parameters.to.save = c("slope",
@@ -275,12 +278,12 @@ for (simulation_rep in 1:250){
   
   inits <- NULL
   nsamp <- 1000
-  nb <- 2000
+  nb <- 1000
   nt <- 5
   ni <- nb + nsamp*nt
   
   out_refit <- jags(data = jags_data_refit,
-                    model.file = "migration_model.jags",
+                    model.file = "migration_model_station_linear2.jags",
                     parameters.to.save = parameters.to.save,
                     inits = inits,
                     n.chains = 3,
@@ -289,7 +292,7 @@ for (simulation_rep in 1:250){
                     n.burnin = nb,
                     parallel = TRUE)
   
-  print(out_refit$mcmc.info$elapsed.mins) # about 2 min
+  print(out_refit$mcmc.info$elapsed.mins) # 10 min
   
   # Assess convergence
   latent_parameters <- c("slope",
@@ -334,7 +337,7 @@ for (simulation_rep in 1:250){
   # Plot results (removing runs that did not converge)
   # ----------------------------------------------------
   
-  sim_results <- subset(sim_results, max_Rhat <= 1.1)
+  sim_results <- subset(sim_results, max_Rhat <= 1.2)
   sim_results$Stratum <- factor(sim_results$Stratum, levels = c("West","East"))
   sim_results$cov <- sim_results$slope_est_q025 < sim_results$slope_true & sim_results$slope_est_q975 > sim_results$slope_true
   

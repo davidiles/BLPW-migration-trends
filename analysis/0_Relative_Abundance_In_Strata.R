@@ -182,9 +182,9 @@ BAM_Map
 # Combine maps
 # ------------------------------------------------
 
-maps_combined <- ggpubr::ggarrange(eBird_Map, BAM_Map, nrow = 2, labels = c("(a)","(b)"))
+maps_combined <- ggpubr::ggarrange(BAM_Map, eBird_Map, nrow = 2, labels = c("(a)","(b)"))
 
-png(file ="2_output/Results_Appendix/Relative_Abundance_Maps.png", units = "in", width = 8, height = 10, res = 600)
+png(file ="1_output/Results_Appendix/Relative_Abundance_Maps.png", units = "in", width = 8, height = 10, res = 600)
 maps_combined
 dev.off()
 
@@ -192,4 +192,4 @@ dev.off()
 # Save relative abundance estimates
 # ------------------------------------------------
 
-write.csv(relabund, "2_output/Results_MainText/relabund_eBird_BAM.csv", row.names = FALSE)
+write.csv(relabund, "1_output/Results_MainText/relabund_eBird_BAM.csv", row.names = FALSE)

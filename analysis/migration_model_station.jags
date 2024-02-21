@@ -1,10 +1,6 @@
 
     model {
 
-  # *********************************************************
-  # Priors and likelihood
-  # *********************************************************
-
   #---------------------------------------------
   # Model for population dynamics in each region
   #---------------------------------------------
@@ -18,16 +14,16 @@
     
     for (y in 1:nyear){
 
-      logX[j,y] ~ dnorm(slope[j] * (y-1),tau_X)
+      logX[j,y] ~ dnorm(slope[j] * (y-1), tau_X)
       X[j,y] <- exp(logX[j,y])
 
     }
 
   } # j
 
-  #---------------------------------------------
+  # *********************************************************
   # Model for breeding origins of migrants arriving at each station
-  #---------------------------------------------
+  # *********************************************************
   
   sigma_rho ~ dunif(0,2)
   tau_rho <- pow(sigma_rho,-2)
@@ -35,14 +31,15 @@
   # Model fluctuations in numbers of migrants from each stratum in each year
   for (s in 1:nstation){
 
+
     for (j in 1:nstrata){
-    
-      rho[j,s] ~ dlnorm(0,0.04)
-      
+
+    	rho[j,s] ~ dlnorm(log(0.2),1/4)
+
       for (y in 1:nyear){
       
-         M[j,s,y] <- X[j,y] * rho[j,s] * rho_fix[j,s] 
-         
+         M_star[j,s,y] ~ dlnorm (log(X[j,y] * rho[j,s]), tau_rho)
+         M[j,s,y] <- M_star[j,s,y] * rho_fix[j,s]
       }
       
     }
@@ -56,9 +53,8 @@
 
       # Total number of migrants in year [y] at station [s]
       sumM[s,y] <- sum(M[1:nstrata,s,y])
-      T[s,y] ~ dlnorm(log(sumM[s,y]),tau_rho)
-      
-      #T[s,y] <- sum(M[1:nstrata,s,y])
+      #T[s,y] ~ dlnorm(log(sumM[s,y]),tau_rho)
+      T[s,y] <- sum(M[1:nstrata,s,y])
       
       # Proportion of birds from each stratum
       for (j in 1:nstrata){
@@ -71,9 +67,12 @@
     } # y
   } # s
 
-  # ---------------------------------------------
+  # *********************************************************
   # Model counts of migrants arriving at each station, within each season
-  # ---------------------------------------------
+  # *********************************************************
+
+  sigma_stationday ~ dunif(0,2)
+  tau_stationday <- pow(sigma_stationday,-2)
 
   # Daily overdispersion in counts at each site (e.g., due to daily weather, stopover behavior, etc.)
   for (s in 1:nstation){
@@ -84,8 +83,7 @@
     migration_phenology_sd[s] ~ dlnorm(log(9)-0.5/25,25) 
     migration_phenology_tau[s] <- pow(migration_phenology_sd[s],-2)
     
-    sigma_stationday[s] ~ dunif(0,2)
-    tau_stationday[s] <- pow(sigma_stationday[s],-2)
+
   }
 
   for (i in 1:nobs){
@@ -95,19 +93,19 @@
     mu[i] <- log(f[i]) + log(T[station[i],year[i]])
     
     # Add daily overdispersion
-    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday[station[i]])
+    log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday)
     count[i] ~ dpois(exp(log_lambda[i]))
 
     # Other useful quantities
-    expected_count[i] <- exp(mu[i] + log(net_hrs[i]) + 0.5/tau_stationday[station[i]])
-    daily_index[i] <- exp(mu[i] + 0.5/tau_stationday[station[i]])
+    expected_count[i] <- exp(mu[i] + log(net_hrs[i]) + 0.5/tau_stationday)
+    daily_index[i] <- exp(mu[i] + 0.5/tau_stationday)
 
     # *********************************************************
     # Simulate counts for posterior predictive checking
     # *********************************************************
 
     # Simulate new daily counts
-    sim_log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday[station[i]])
+    sim_log_lambda[i] ~ dnorm(mu[i] + log(net_hrs[i]), tau_stationday)
     sim_count[i] ~ dpois(exp(sim_log_lambda[i]))
 
   }

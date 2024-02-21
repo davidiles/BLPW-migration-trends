@@ -337,6 +337,8 @@ count_df <- dat_combined[,c("site","YearCollected","doy","ObservationCount","net
              station = gsub('[[:digit:]]+', '', .$site_name)) %>%
   subset(!is.na(count))
 
+station_data_summarized <- station_data_summarized  %>% arrange(lon)
+
 count_df$station_number <- factor(count_df$station) %>% as.numeric()
 station_names <- factor(count_df$station) %>% levels(.)
 
@@ -389,25 +391,25 @@ dimnames(N_origin)[[1]] <- c("East","West")
 dimnames(N_origin)[[2]] <- station_names
 dimnames(N_origin)[[3]] <- year_vec
 
-# Loop through isotope assignments, and assign them to nearest station (up to max distance of 250 km)
+# Loop through isotope assignments, and assign them to all stations within 100 km
 
 for (i in 1:nrow(assignments_sf)){
-  
+
   # Determine nearest station
   dists <- st_distance(assignments_sf[i,],station_data_summarized_sf) %>% as.numeric()
-  if (min(dists) >= 250000) next
-  
-  inrange <- station_data_summarized_sf[which(dists < 250000),]
-  
+  if (min(dists) >= 100000) next
+
+  inrange <- station_data_summarized_sf[which(dists < 100000),]
+
   assignment_year <- assignments_sf$year[i]
-  
+
   for (station in inrange$station){
     if (sum(is.na(N_origin[,station,as.character(assignment_year)]))>0) N_origin[1:(dim(N_origin)[1]),station,as.character(assignment_year)] <- rep(0,length(N_origin[,station,as.character(assignment_year)]))
     N_origin["West",station,as.character(assignment_year)] <- N_origin["West",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_West"])
     N_origin["East",station,as.character(assignment_year)] <- N_origin["East",station,as.character(assignment_year)] + as.numeric(assignments[i,"assigned_to_East"])
-    
+
   }
-  
+
 }
 
 # Sample sizes
@@ -420,28 +422,6 @@ jags_data$N_station_sampled <- N_station_sampled
 
 # End section processing breeding origins
 # ------------------------------------------------------
-
-
-
-# ******************************************************************
-# Calculate approximate annual indices as sum(count/net_hrs)
-# - just used to visualize raw data
-# ******************************************************************
-
-Tstar = count_df %>%
-  group_by(station,year_abs) %>%
-  summarize(Tstar = sum(count/net_hrs))
-
-Tstar %>%
-  group_by(station) %>%
-  summarize(mean_Tstar = mean(Tstar),
-            min_Tstar = min(Tstar),
-            max_Tstar = max(Tstar),
-            med_Tstar = median(Tstar))
-
-ggplot(Tstar, aes(x = Tstar))+
-  geom_histogram()+
-  facet_wrap(station~., scales = "free")
 
 
 # ******************************************************************
@@ -465,17 +445,145 @@ rho_fix["West", c("AIMS","MBO")] <- 0
 
 jags_data$rho_fix <- rho_fix
 
+# ***************************************************************
+# ***************************************************************
+# PART 3: SUMMARIZE DATA AVAILABILITY FOR APPENDIX 1
+# ***************************************************************
+# ***************************************************************
+
+# Summary of migration count availability at each station
+station_summary <- count_df %>%
+  rename(Year = year_abs, Station = station) %>%
+  group_by(Station,Year) %>%
+  summarize(Total_Count = sum(count),
+            Min_Day = min(day_number),
+            Max_Day = max(day_number),
+            n_days = length(unique(day_number))) %>%
+  group_by(Station) %>%
+  summarize(n_Years = length(unique(Year)),
+            First_Year = min(Year),
+            Last_Year = max(Year),
+            Year_Range = paste0(min(Year)," - ", max(Year)),
+            min_Count = min(Total_Count),
+            max_Count = max(Total_Count),
+            mean_Count = round(mean(Total_Count),1)) %>%
+  left_join(station_coordinates, by = c("Station" = "station")) %>%
+  dplyr::select(Station,name,country,lat,lon,Year_Range,mean_Count,min_Count,max_Count) %>%
+  rename("Station code" = Station,
+         "Station name" = name,
+         "Country" = country,
+         "Lat" = lat,
+         "Lon" = lon,
+         "Year range" = Year_Range,
+         "Mean annual count" = mean_Count,
+         "Min annual count" = min_Count,
+         "Max annual count" = max_Count) %>%
+  arrange(Lon) %>%
+  mutate(Lat = round(Lat,1),
+         Lon = round(Lon,1)) 
+
+#write.csv(station_summary, file = paste0("1_output/",focal_season,"/tables/station_summary.csv"),row.names = FALSE)
+
+# -------------------------------------------------------------------------
+# Create a plot of daily observed counts for each station
+# -------------------------------------------------------------------------
+
+stations_west_to_east <- station_summary %>% arrange(Lon) %>%
+  dplyr::rename(station = 'Station code')
+stations_west_to_east <- unique(stations_west_to_east$station)
+count_df$station <- factor(count_df$station, levels = stations_west_to_east)
+
+daily_count_plot <- ggplot(count_df)+
+  geom_point(aes(x = day_number, y = count/net_hrs))+
+  scale_y_continuous(trans="log10")+
+  ylab("log(count / net hour)")+
+  xlab("Day of the year")+
+  facet_grid(station~year_abs, scales = "free_y")+
+  ggtitle("Prebreeding migration")
+
+# png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 20, height = 12, res = 600)
+# daily_count_plot
+# dev.off()
+
+# -------------------------------------------------------------------------
+# Create a plot of seasonal totals at each station
+# -------------------------------------------------------------------------
+
+seasonal_sum_df <- count_df %>%
+  group_by(station,year_abs) %>%
+  summarize(sum = sum(count/net_hrs))
+
+seasonal_sum_plot <- ggplot(seasonal_sum_df)+
+  geom_point(aes(x = year_abs, y = sum))+
+  ylab("sum(count/net hour)")+
+  xlab("Year")+
+  facet_wrap(station~., scales = "free_y")+
+  ggtitle("Prebreeding migration")
+
+seasonal_sum_plot
+
+# -------------------------------------------------------------------------
+# Empirical estimates of T at each station
+# -------------------------------------------------------------------------
+
+T_est <- count_df %>%
+  group_by(station_number,year_abs) %>%
+  summarize(T = sum(count/(exp(0.5*0.5^2)*net_hrs))) %>%
+  group_by(station_number) %>%
+  summarize(T1 = median(T))
+
+
+
+#-------------------------------------------------------------------
+# Breeding origin assignments at each station
+#-------------------------------------------------------------------
+
+station_assignments <- jags_data$N_origin %>%
+  reshape2::melt() %>%
+  rename(Stratum = Var1, Station = Var2, Year = Var3, n = value)
+station_assignments$Stratum = factor(station_assignments$Stratum, levels = c("West","East"))
+
+station_assignments <- left_join(station_assignments, station_summary[,c("Station code","Lat","Lon")], by = c("Station" = "Station code"))
+station_assignments <- arrange(station_assignments, Lon, Year)
+station_assignments$Station <- factor(station_assignments$Station, levels = unique(station_assignments$Station))
+
+station_fixed_rho <- jags_data$rho_fix %>%
+  reshape2::melt() %>%
+  rename(Stratum = Var1, Station = Var2, fix = value)
+station_fixed_rho$Stratum = factor(station_fixed_rho$Stratum, levels = c("West","East"))
+station_fixed_rho$Fixed <- NA
+station_fixed_rho$Fixed[station_fixed_rho$fix == 0 & station_fixed_rho$Stratum == "East"] <- "Model will assume this station\nonly captures birds from West\nbased on its location"
+station_fixed_rho$Fixed[station_fixed_rho$fix == 0 & station_fixed_rho$Stratum == "West"] <- "Model will assume this station\nonly captures birds from East\nbased on its location"
+
+station_assignments$Station <- factor(station_assignments$Station,levels = station_summary$`Station code`)
+station_assignment_plot <- ggplot(data = station_assignments, 
+                                  aes(x = Year, y = n, fill = Stratum)) +
+  geom_bar(stat = "identity")+
+  geom_text(data = station_fixed_rho, aes(x = 1998, y = max(station_assignments$n,na.rm = TRUE)*1.5, label = Fixed),
+            hjust=0,vjust=1, fontface = "italic", size = 2)+
+  scale_fill_manual(values = strata_colours, name = "Stratum of origin")+
+  facet_wrap(Station~.)+
+  xlim(c(range(station_assignments$Year)))+
+  ggtitle("Prebreeding Migration")+
+  ylab("Number of bird samples analyzed")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+station_assignment_plot
+
+# png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
+# station_assignment_plot
+# dev.off()
+
 # ------------------------------------------------------
 # Fit Model
 # ------------------------------------------------------
 
 parameters.to.save = c("slope",
                        "sigma_rho",
-                       "sigma_X",
                        "sigma_stationday",
-                       "migration_phenology_sd",
-                       "migration_phenology_mean",
                        "rho",
+                       "migration_phenology_mean",
+                       "migration_phenology_sd",
                        "M",
                        "T",
                        "expected_count",
@@ -483,10 +591,13 @@ parameters.to.save = c("slope",
                        "X")
 
 
-inits <- NULL
+rho_init <- jags_data$rho_fix * NA
+for (s in 1:ncol(rho_fix)) rho_init[,s] <- T_est$T1[T_est$station_number == s]
+inits <- function(){list(rho_prior = rho_init)}
+
 nsamp <- 2000
-nb <- 10000
-nt <- 200
+nb <- 5000
+nt <- 50
 ni <- nb + nsamp*nt
 
 out <- jags(data = jags_data,
@@ -519,7 +630,7 @@ latent_parameters <- c("slope",
                        "migration_phenology_mean",
                        "log_rho_mu")
 
-latent_states <- names(out$Rhat)[which(!(names(out$Rhat) %in% latent_parameters | names(out$Rhat) %in% c("sim_count","X2_sim","X2_obs")))]
+latent_states <- names(out$Rhat)[which(!(names(out$Rhat) %in% latent_parameters | names(out$Rhat) %in% c("sim_count")))]
 
 # Rhat
 max(unlist(out$Rhat[latent_parameters]), na.rm = TRUE)
@@ -533,7 +644,7 @@ sum(unlist(out$Rhat[latent_states]) > 1.1, na.rm = TRUE)
 unlist(out$Rhat[latent_states])[which(unlist(out$Rhat[latent_states]) > 1.1)]
 
 # Effective sample sizes
-n.eff <- unlist(out$n.eff[!(names(out$Rhat) %in% c("sim_count","X2_sim","X2_obs","daily_index"))])
+n.eff <- unlist(out$n.eff[!(names(out$Rhat) %in% c("sim_count"))])
 
 # Parameters with fewer than 1000 samples
 n.eff[n.eff > 1 & n.eff <= 1000] 
@@ -543,8 +654,9 @@ mean(n.eff[n.eff>1]<1000)
 MCMCvis::MCMCtrace(out, params = c("slope",
                                    "sigma_rho",
                                    "sigma_stationday",
-                                   "migration_phenology_sd",
+                                   "rho",
                                    "migration_phenology_mean",
+                                   "migration_phenology_sd",
                                    "X"),
                    Rhat = TRUE,n.eff = TRUE, ind = TRUE,
                    pdf = TRUE, filename = paste0("Traceplot_",focal_season,".pdf"), 
@@ -646,42 +758,6 @@ plot_obs_vs_expected
 dev.off()
 
 #-------------------------------------------------------------------
-# Breeding origin assignments at each station
-#-------------------------------------------------------------------
-
-station_assignments <- jags_data$N_origin %>%
-  reshape2::melt() %>%
-  rename(Stratum = Var1, Station = Var2, Year = Var3, n = value)
-station_assignments$Stratum = factor(station_assignments$Stratum, levels = c("West","East"))
-
-station_fixed_rho <- jags_data$rho_fix %>%
-  reshape2::melt() %>%
-  rename(Stratum = Var1, Station = Var2, fix = value)
-station_fixed_rho$Stratum = factor(station_fixed_rho$Stratum, levels = c("West","East"))
-station_fixed_rho$Fixed <- NA
-station_fixed_rho$Fixed[station_fixed_rho$fix == 0 & station_fixed_rho$Stratum == "East"] <- "Model will assume this station\nonly captures birds from West\nbased on its location"
-station_fixed_rho$Fixed[station_fixed_rho$fix == 0 & station_fixed_rho$Stratum == "West"] <- "Model will assume this station\nonly captures birds from East\nbased on its location"
-
-station_assignments$Station <- factor(station_assignments$Station,levels = station_summary$`Station code`)
-station_assignment_plot <- ggplot(data = station_assignments, 
-                                  aes(x = Year, y = n, fill = Stratum)) +
-  geom_bar(stat = "identity")+
-  geom_text(data = station_fixed_rho, aes(x = 1998, y = max(station_assignments$n,na.rm = TRUE)*1.5, label = Fixed),
-            hjust=0,vjust=1, fontface = "italic", size = 2)+
-  scale_fill_manual(values = strata_colours, name = "Stratum of origin")+
-  facet_wrap(Station~.)+
-  xlim(c(range(station_assignments$Year)))+
-  ggtitle("Pre-breeding Migration")+
-  ylab("Number of bird samples analyzed")+
-  theme(axis.text.x = element_text(angle = 45, hjust=1))
-
-station_assignment_plot
-
-png(file = paste0(output_directory,"figures/Appendix_GOF_breeding_origin_data.png"), units = "in", width = 8, height = 6, res = 600)
-station_assignment_plot
-dev.off()
-
-#-------------------------------------------------------------------
 # Posterior predictive checks
 #-------------------------------------------------------------------
 
@@ -759,7 +835,7 @@ dev.off()
 year_vec <- seq(1998,2018)
 relabund <- read.csv("1_output/Results_MainText/relabund_eBird_BAM.csv")
 
-source_of_estimate <- "eBird"
+source_of_estimate <- "BAM"
 relabund <- subset(relabund, Source == source_of_estimate)
 relabund$Sum <- relabund$Sum/relabund$Sum[1]
 
@@ -827,7 +903,10 @@ stratum_indices_summarized <- stratum_indices_df %>%
     # Rescaled
     indices_rescaled_q025 = quantile(indices_rescaled,0.025),
     indices_rescaled_q500 = quantile(indices_rescaled,0.500),
-    indices_rescaled_q975 = quantile(indices_rescaled,0.975)
+    indices_rescaled_q975 = quantile(indices_rescaled,0.975),
+    
+    # Percent change relative to 1998
+    pchange_q025 = quantile(indices - indices)
   )
 
 # ~~~~~~~~~~
@@ -887,6 +966,26 @@ trend_summarized <- trend_df %>%
             perc_change_2008_q975 = quantile(perc_change_2008,0.975)  %>% round(0),
   )
 
+# --------------------------------------
+# Plot indices
+# --------------------------------------
+indices_summarized$Stratum <- factor(indices_summarized$Stratum,levels = c("West","East","Continental"))
+ggplot(data = indices_summarized, 
+       aes(x = Year,
+           y = indices_rescaled_q500, 
+           ymin = indices_rescaled_q025, 
+           ymax = indices_rescaled_q975,
+           col = Stratum),
+)+
+  geom_errorbar(width = 0)+
+  geom_hline(yintercept = 0, col = "transparent")+
+  geom_point()+
+  scale_color_manual(values=c(strata_colours,"black"),guide="none")+
+  ylab("Population Index")+
+  facet_grid(.~Stratum, scales = "free_y")
+
+
+
 Spring_results <- list(indices_df = indices_df,
                        indices_summarized = indices_summarized,
                        trend_df = trend_df,
@@ -894,8 +993,8 @@ Spring_results <- list(indices_df = indices_df,
 
 Spring_results$trend_summarized %>% as.data.frame()
 
-saveRDS(Spring_results,paste0(output_directory,"results_Spring.rds"))
+#saveRDS(Spring_results,paste0(output_directory,"results_Spring.rds"))
 
 # Save/load entire workspace
 #save.image(paste0(output_directory,"wksp_Spring.RData"))
-load(paste0(output_directory,"wksp_Spring.RData"))
+#load(paste0(output_directory,"wksp_Spring.RData"))
