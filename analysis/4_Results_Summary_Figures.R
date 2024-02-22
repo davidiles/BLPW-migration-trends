@@ -292,19 +292,26 @@ all_indices <- all_indices %>%
 
 analysis_summary <- all_indices %>%
   group_by(Year,Stratum,Source) %>%
-  summarize(log_change_q025 = quantile(log_change,0.025) ,
-            log_change_q500 = quantile(log_change,0.500),
-            log_change_q975 = quantile(log_change,0.975),
-            
-            percent_change_q025 = quantile(percent_change,0.025) %>% round(),
-            percent_change_q500 = quantile(percent_change,0.500) %>% round(),
-            percent_change_q975 = quantile(percent_change,0.975) %>% round(),
-            
-            trend_q025 = quantile(trend,0.025) %>% round(1),
-            trend_q500 = quantile(trend,0.500) %>% round(1),
-            trend_q975 = quantile(trend,0.975) %>% round(1),
-            
-            prob_positive = round(mean(trend > 0),2)
+  summarize(
+    
+    index_q025 = quantile(indices_rescaled,0.025),
+    index_q500 = quantile(indices_rescaled,0.500),
+    index_q975 = quantile(indices_rescaled,0.975),
+    
+    
+    log_change_q025 = quantile(log_change,0.025) ,
+    log_change_q500 = quantile(log_change,0.500),
+    log_change_q975 = quantile(log_change,0.975),
+    
+    percent_change_q025 = quantile(percent_change,0.025) %>% round(),
+    percent_change_q500 = quantile(percent_change,0.500) %>% round(),
+    percent_change_q975 = quantile(percent_change,0.975) %>% round(),
+    
+    trend_q025 = quantile(trend,0.025) %>% round(1),
+    trend_q500 = quantile(trend,0.500) %>% round(1),
+    trend_q975 = quantile(trend,0.975) %>% round(1),
+    
+    prob_positive = round(mean(trend > 0),2)
   )
 
 # -----------------------
@@ -314,19 +321,20 @@ analysis_summary <- all_indices %>%
 # Summary in final year (represents overall trend from 1998 to 2008)
 Summary_Table <- subset(analysis_summary, Year == 2018) %>%
   group_by(Stratum,Source) %>%
-  summarize(`20 year trend` = paste0(trend_q500,"(",trend_q025," to ",trend_q975,")"),
+  summarize(`20 year trend` = paste0(trend_q500," (",trend_q025," to ",trend_q975,")"),
             `Prob trend is positive` = prob_positive,
-            `% change since 1998` = paste0(percent_change_q500,"(",percent_change_q025," to ",percent_change_q975,")"))
+            `% change since 1998` = paste0(percent_change_q500," (",percent_change_q025," to ",percent_change_q975,")"))
 
 
 write.csv(Summary_Table,file = paste0("1_output/Results_MainText/Summary_Table_",source_of_estimate,".csv"), row.names = FALSE)
 
+
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Plot
+# Plot percent change relative to baseline year (Figure 2 in manuscript)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 strata_colours <- c("#016b9b","#D18A80","black")
-
 
 # ------------
 # Prepare y axis scale (conversion between log-scale change and percent change) 
@@ -385,3 +393,52 @@ png(file = paste0("1_output/Results_MainText/Figure2_",source_of_estimate,".png"
 Fig2
 dev.off()
 
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Plot Indices through time
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+strata_colours <- c("#016b9b","#D18A80","black")
+
+# ------------
+# Text labels for each panel
+# ------------
+
+text_labels <- expand.grid(Year = 1998,
+                           log_y = max(log_breaks),
+                           Stratum = factor(c("West","East","Continental"),levels = c("West","East","Continental")),
+                           Source = factor(c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey"),levels = c("Pre-breeding migration","Post-breeding migration","Breeding Bird Survey")))
+text_labels$panel <- c("(a)","(b)","(c)","(d)","(e)","(f)","(g)","(h)","(i)")
+
+# ------------
+# Plot itself
+# ------------
+
+FigX_Appendix <- ggplot()+
+  geom_ribbon(data = subset(analysis_summary, Source != "Breeding Bird Survey"),
+              aes(x = Year, 
+                  y = index_q500, 
+                  ymin = index_q025, 
+                  ymax = index_q975, 
+                  fill = Stratum, 
+                  col = Stratum),alpha = 0.2, col = "transparent")+
+  geom_line(data = subset(analysis_summary, Source != "Breeding Bird Survey"),
+            aes(x = Year, 
+                y = index_q500, 
+                col = Stratum),linewidth = 2)+
+  
+  scale_color_manual(values = strata_colours, guide = FALSE)+
+  scale_fill_manual(values = strata_colours, guide = FALSE)+
+  
+  coord_cartesian()+
+  facet_grid(Source~Stratum, scales = "free_y")+
+  ylab("Index of abundance")+
+  xlab("Year")+
+  geom_hline(yintercept = 0, linetype = 2)+
+  ggtitle("")
+
+png(file = paste0("1_output/Results_Appendix/FigureX_Indices_",source_of_estimate,".png"), units = "in", width = 7, height = 5, res = 600)
+FigX_Appendix
+dev.off()
