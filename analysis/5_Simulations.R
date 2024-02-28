@@ -384,7 +384,7 @@ result_plot <- ggplot(data = sim_results,
   geom_errorbar(width=0)+
   geom_point()+
   geom_abline(slope=1,intercept=0)+
-  scale_color_manual(values = c("orangered","dodgerblue"), guide = FALSE)+
+  scale_color_manual(values = c("orangered", "black"), guide = FALSE)+
   coord_cartesian(ylim=limits,xlim=limits)+
   ylab("Estimated log-linear trend")+
   xlab("True log-linear trend")+
