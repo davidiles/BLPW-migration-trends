@@ -9,6 +9,9 @@ my_packs <- c('tidyverse','sf','ebirdst','terra','scales','ggpubr')
 if (any(!my_packs %in% installed.packages()[, 'Package'])) {install.packages(my_packs[which(!my_packs %in% installed.packages()[, 'Package'])],dependencies = TRUE)}
 lapply(my_packs, require, character.only = TRUE)
 
+library(bbsBayes)
+library(ggrepel)
+
 rm(list=ls())
 
 # ------------------------------------------------
@@ -56,8 +59,7 @@ relabund <- data.frame()
 # Load BBS strata shapefile
 #------------------------------------------------
 
-dsn = paste0(system.file("maps", package = "bbsBayes"),"/BBS_USGS_strata.shp")
-BBS_strata_boundaries <- sf::read_sf(dsn = dsn)
+BBS_strata_boundaries <- sf::read_sf("C:/Users/IlesD/AppData/Local/R/win-library/4.3/bbsBayes/maps/BBS_USGS_strata.shp")
 
 #------------------------------------------------
 # Load migration strata shapefile
@@ -98,7 +100,7 @@ relabund <- rbind(relabund, data.frame(Source = "eBird",
 # ~~~
 # Map of relative abundance
 # ~~~
-blpw_ebird[blpw_ebird <= 0.0001] <- NA
+#blpw_ebird[blpw_ebird <= 0.0001] <- NA
 blpw_ebird <- mask(blpw_ebird, st_transform(strata_sf, st_crs(blpw_ebird)))
 
 eBird_Map <- ggplot(data = strata_sf) +
@@ -122,19 +124,50 @@ eBird_Map <- ggplot(data = strata_sf) +
   ggtitle("Relative Abundance (eBird 2022)")
 eBird_Map
 
-# png(file ="2_output/Results_Appendix/eBird_relabund.png", units = "in", width = 8, height = 6, res = 600)
-# eBird_Map
-# dev.off()
-
 # ------------------------------------------------
 # USING BAM
+# NOTE THAT BAM LACKS RELATIVE ABUNDANCE PREDICTIONS FOR AK.  
+# USE BBS TO IMPUTE IT.
 # ------------------------------------------------
 
-# Load high resolution relative abundance raster
+# Load high resolution relative abundance raster from BAM
 blpw_bam <- terra::rast("0_data/bam_density_raster/pred-BLPW-CAN-Mean.tif")
-
-# Extract relative abundance in each stratum
 blpw_bam <- crop(blpw_bam, st_transform(strata_sf, st_crs(blpw_bam)))
+
+# Convert from males/ha to males/km2
+values(blpw_bam) <- values(blpw_bam)*100
+
+# Stratum boundaries
+BBS_strata_boundaries <- sf::read_sf("C:/Users/IlesD/AppData/Local/R/win-library/4.3/bbsBayes/maps/BBS_USGS_strata.shp") %>%
+  st_intersection(st_union(strata_sf))
+
+# Load BBS model
+load("1_output/BBS/BBS_analysis.RData")
+
+# Mean relative abundance in each region
+stratum_indices <- generate_indices(jags_mod = jags_mod,
+                                    jags_data = jags_data,
+                                    regions = c("stratum"))$data_summary %>%
+  dplyr::rename(ST_12 = Region) %>%
+  group_by(ST_12) %>%
+  summarize(Index = mean(Index,na.rm = TRUE))
+
+BBS_strata_boundaries$area_km2 <- as.numeric(st_area(BBS_strata_boundaries))/1000000
+BBS_strata_boundaries <- full_join(BBS_strata_boundaries, stratum_indices)
+
+# bam estimate is total birds (birds per ha * 100 ha/km2)
+comparison <- terra::extract(blpw_bam,BBS_strata_boundaries, bind = TRUE, fun = sum, na.rm = TRUE) %>%
+  dplyr::rename(bam = pred.BLPW.CAN.Mean)  %>% 
+  as.data.frame() %>%
+  dplyr::select(ST_12,PROVSTATE,COUNTRY,area_km2,Index,bam)
+
+comparison$Index[comparison$Index==0] <- NA
+
+# Predictions of BAM's relative abundance in the missing strata (Alaska)
+comparison$bam_area <- comparison$bam/comparison$area_km2
+bam_lm <- lm(log(bam_area)~log(Index),data = subset(comparison, COUNTRY != "US"))
+
+# Extract relative abundance in each stratum, fill in using prediction
 blpw_bam_df <- terra::extract(blpw_bam,strata_sf)
 colnames(blpw_bam_df)[2] <- "Density"
 blpw_bam_df <- blpw_bam_df %>%
@@ -142,15 +175,48 @@ blpw_bam_df <- blpw_bam_df %>%
   summarize(Sum = sum(Density, na.rm = TRUE)) %>%
   mutate(Stratum = c("East","West")[ID])
 
-# Eastern stratum was 1.45 times larger than western stratum in 2022
+# Add contribution from Alaska
+comparison$pred <- exp(predict(bam_lm, newdata = comparison)) * comparison$area_km2
+
+AK_contribution <- sum(subset(comparison,PROVSTATE == "AK")$pred,na.rm = TRUE)
+
+blpw_bam_df$Sum[blpw_bam_df$Stratum == "West"] <- blpw_bam_df$Sum[blpw_bam_df$Stratum == "West"] + AK_contribution
+
+# Western stratum was 2.43 times larger than eastern stratum in 2011
 relabund <- rbind(relabund, data.frame(Source = "BAM",
                                        Stratum = c("East","West"),
                                        Sum = blpw_bam_df$Sum))
 
+
+
+# Plot comparison between BBS and BAM
+BAM_BBS_comparison_plot <- ggplot(comparison)+
+  #geom_vline(data = subset(comparison, PROVSTATE == "AK"), aes(xintercept = Index), col = "dodgerblue", linetype = 2)+
+  geom_smooth(data = subset(comparison, COUNTRY != "US"), aes(x = Index, y = bam/area_km2), method = "lm")+
+  
+  geom_point(data = subset(comparison, COUNTRY != "US"), aes(x = Index, y = bam/area_km2))+
+  
+  geom_point(data = subset(comparison, COUNTRY == "US" & PROVSTATE == "AK"), aes(x = Index, y = pred/area_km2), col = "dodgerblue", size = 3)+
+  
+  geom_text_repel(data = subset(comparison, COUNTRY != "US"),aes(x = Index, y = bam/area_km2, label = ST_12), size = 2, hjust = 1, vjust = 0)+
+  geom_text_repel(data = subset(comparison, COUNTRY == "US" & PROVSTATE == "AK"),aes(x = Index, y = pred/area_km2, label = ST_12), size = 2, col = "dodgerblue", hjust = 1, vjust = 1)+
+  
+  
+  scale_y_continuous(trans = "log10")+
+  scale_x_continuous(trans = "log10")+
+  xlab("BBS (birds/route)")+
+  ylab("BAM (birds/area)")+
+  theme_bw()
+BAM_BBS_comparison_plot
+
+png(file ="1_output/Results_Appendix/BAM_BBS_comparison_plot.png", units = "in", width = 5, height = 5, res = 600)
+BAM_BBS_comparison_plot
+dev.off()
+
 # ~~~
 # Map of relative abundance
 # ~~~
-#blpw_bam[blpw_bam <= 0.001] <- NA
+
 blpw_bam <- mask(blpw_bam, st_transform(strata_sf, st_crs(blpw_bam)))
 
 BAM_Map <- ggplot(data = strata_sf) +
@@ -168,15 +234,12 @@ BAM_Map <- ggplot(data = strata_sf) +
   scale_fill_gradientn(colors = c("transparent","lightblue","dodgerblue","darkblue"),
                        na.value = "transparent",
                        trans="log10",
-                       name = "Relative Abundance",
+                       name = "males/km^2",
                        labels = comma)+
   scale_color_manual(values=strata_colours)+
   ggtitle("Relative Abundance (BAM 2011)")
 BAM_Map
 
-# png(file ="2_output/Results_Appendix/BAM_relabund.png", units = "in", width = 8, height = 6, res = 600)
-# BAM_Map
-# dev.off()
 
 # ------------------------------------------------
 # Combine maps

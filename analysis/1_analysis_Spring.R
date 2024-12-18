@@ -493,15 +493,16 @@ stations_west_to_east <- station_summary %>% arrange(Lon) %>%
 stations_west_to_east <- unique(stations_west_to_east$station)
 count_df$station <- factor(count_df$station, levels = stations_west_to_east)
 
-daily_count_plot <- ggplot(count_df)+
+daily_count_plot <- ggplot(subset(count_df, station %in% c("LPBO")))+
   geom_point(aes(x = day_number, y = count/net_hrs))+
   scale_y_continuous(trans="log10")+
   ylab("log(count / net hour)")+
   xlab("Day of the year")+
-  facet_grid(station~year_abs, scales = "free_y")+
-  ggtitle("Prebreeding migration")
+  facet_wrap(year_abs~.)+
+  ggtitle("Prebreeding migration data at LPBO")
 
-png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), units = "in", width = 30, height = 10, res = 600)
+png(file = paste0("1_output/",focal_season,"/figures/Appendix_daily_counts.png"), 
+    units = "in", width = 7, height = 7, res = 600)
 daily_count_plot
 dev.off()
 
