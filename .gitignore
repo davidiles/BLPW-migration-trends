@@ -10,3 +10,5 @@ analysis/1_output/
 archive/
 manuscript/
 
+!analysis/0_data/Isotopes/isotope_assignments.xlsx
+
