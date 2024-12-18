@@ -6,9 +6,7 @@
 *.doc
 *.docx
 analysis/0_data/
-analysis/2_output/
-analysis/2_BBS_analysis/
-analysis/3_scripts_figures_for_publication/
-analysis/4_scripts_results_appendix_simulation/
+analysis/1_output/
 archive/
+manuscript/
 
