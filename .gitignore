@@ -5,10 +5,19 @@
 *.rds
 *.doc
 *.docx
-analysis/0_data/
 analysis/1_output/
 archive/
 manuscript/
 
-!analysis/0_data/Isotopes/isotope_assignments.xlsx
+analysis/0_data/bam_density_raster/
+analysis/0_data/bcr/
+analysis/0_data/eBird/
+analysis/0_data/Encounters/
+analysis/0_data/locations/
+analysis/0_data/migration_counts/
+analysis/0_data/province_boundaries/
+
+
+
+
 
